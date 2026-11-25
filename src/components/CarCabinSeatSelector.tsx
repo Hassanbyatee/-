@@ -8,6 +8,9 @@ interface CarCabinSeatSelectorProps {
   selectedSeats: CabinSeatId[];
   maxSelectable: number;
   seatPrices?: SeatPricesMap;
+  totalSeats?: number;
+  fullCarMode?: boolean;
+  fullCarPriceIqd?: number;
   onToggleSeat: (seatId: CabinSeatId) => void;
 }
 
@@ -22,6 +25,9 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
   selectedSeats,
   maxSelectable,
   seatPrices,
+  totalSeats = 4,
+  fullCarMode = false,
+  fullCarPriceIqd = 0,
   onToggleSeat,
 }) => {
   const { formatIqd, t } = useI18n();
@@ -34,11 +40,23 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
     rear_right: t.booking.seatRearRight,
     rear_middle: t.booking.seatRearMiddle,
     rear_left: t.booking.seatRearLeft,
+    extra_right: t.booking.seatExtraRight,
+    extra_left: t.booking.seatExtraLeft,
   };
 
-  const selectedSubtotal = seatPrices
-    ? selectedSeats.reduce((sum, id) => sum + (seatPrices[id] || 0), 0)
-    : 0;
+  const showExtraRow =
+    Number(totalSeats) >= 6 ||
+    bookedSet.has('extra_right') ||
+    bookedSet.has('extra_left') ||
+    selectedSet.has('extra_right') ||
+    selectedSet.has('extra_left');
+
+  const selectedSubtotal =
+    fullCarMode && Number(fullCarPriceIqd) > 0
+      ? Number(fullCarPriceIqd)
+      : seatPrices
+        ? selectedSeats.reduce((sum, id) => sum + (seatPrices[id] || 0), 0)
+        : 0;
 
   const renderPassengerSeat = ({ id, label, compact = false }: SeatMeta) => {
     const isBooked = bookedSet.has(id);
@@ -50,10 +68,10 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
       <button
         key={id}
         type="button"
-        disabled={isBooked || limitReached}
-        onClick={() => onToggleSeat(id)}
+        disabled={fullCarMode || isBooked || limitReached}
+        onClick={() => !fullCarMode && onToggleSeat(id)}
         aria-pressed={isSelected}
-        aria-label={`${label}${priceIqd ? ` - ${formatIqd(priceIqd)}` : ''} - ${
+        aria-label={`${label}${!fullCarMode && priceIqd ? ` - ${formatIqd(priceIqd)}` : ''} - ${
           isBooked ? t.booking.seatBooked : isSelected ? t.booking.seatSelected : t.booking.seatAvailable
         }`}
         className={`group relative flex flex-col items-center justify-between rounded-2xl border transition-all duration-200 select-none ${
@@ -62,7 +80,9 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
           isBooked
             ? 'bg-slate-200/90 border-slate-300 text-slate-400 cursor-not-allowed shadow-inner opacity-85'
             : isSelected
-            ? 'bg-[#0770E3] border-[#0559B8] text-white -translate-y-1.5 shadow-[0_7px_0_#054494,0_14px_24px_rgba(7,112,227,0.32)] cursor-pointer'
+            ? `bg-[#0770E3] border-[#0559B8] text-white -translate-y-1.5 shadow-[0_7px_0_#054494,0_14px_24px_rgba(7,112,227,0.32)] ${
+                fullCarMode ? 'cursor-default' : 'cursor-pointer'
+              }`
             : limitReached
             ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-70'
             : 'bg-white border-slate-300 text-slate-800 shadow-[0_4px_0_#CBD5E1,0_6px_14px_rgba(5,32,60,0.06)] hover:-translate-y-1 hover:border-[#0770E3] hover:shadow-[0_6px_0_#93C5FD,0_10px_18px_rgba(7,112,227,0.16)] cursor-pointer'
@@ -107,7 +127,7 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
             {label}
           </span>
 
-          {typeof priceIqd === 'number' && priceIqd > 0 && (
+          {!fullCarMode && typeof priceIqd === 'number' && priceIqd > 0 && (
             <span
               className={`text-[10px] font-bold font-mono tabular-nums px-1.5 py-0.5 rounded-md ${
                 isBooked
@@ -142,7 +162,7 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="text-xs font-bold text-slate-800">
-          {t.booking.selectSeatsTitle}
+          {fullCarMode ? t.booking.fullCarIncludedAllSeats : t.booking.selectSeatsTitle}
         </label>
 
         {/* Legend */}
@@ -173,8 +193,8 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
           style={{ transform: 'rotateX(6deg)', transformStyle: 'preserve-3d' }}
         >
           {/* Left & Right Side Mirrors */}
-          <div className="absolute -left-3.5 top-[25%] w-3.5 h-8 rounded-l-lg bg-[#05203C] border border-[#1E4775] shadow-sm" />
-          <div className="absolute -right-3.5 top-[25%] w-3.5 h-8 rounded-r-lg bg-[#05203C] border border-[#1E4775] shadow-sm" />
+          <div className="absolute -left-3.5 top-[22%] w-3.5 h-8 rounded-l-lg bg-[#05203C] border border-[#1E4775] shadow-sm" />
+          <div className="absolute -right-3.5 top-[22%] w-3.5 h-8 rounded-r-lg bg-[#05203C] border border-[#1E4775] shadow-sm" />
 
           {/* Hood & Headlight accents */}
           <div className="flex items-center justify-between px-6 pb-2 pt-1">
@@ -191,12 +211,11 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
           </div>
 
           {/* Cabin Interior Floor */}
-          <div className="mx-1 my-1.5 rounded-[24px] bg-gradient-to-b from-slate-100 via-slate-50 to-slate-100 border border-slate-300/80 p-3 space-y-3.5 shadow-inner">
+          <div className="mx-1 my-1.5 rounded-[24px] bg-gradient-to-b from-slate-100 via-slate-50 to-slate-100 border border-slate-300/80 p-3 space-y-3 shadow-inner">
             {/* FRONT ROW: Driver (Left) + Console + Front Passenger (Right) */}
             <div className="grid grid-cols-[1fr_36px_1fr] gap-2 items-stretch">
               {/* Driver Seat (Always Front-Left, Occupied) */}
               <div className="relative flex flex-col items-center justify-between rounded-2xl border border-slate-300 bg-[#05203C]/[0.08] px-2.5 py-2.5 min-h-[116px] text-slate-600 select-none">
-                {/* Steering Wheel */}
                 <div className="flex items-center justify-center w-full mb-1">
                   <svg
                     viewBox="0 0 36 22"
@@ -262,6 +281,29 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
                 compact: true,
               })}
             </div>
+
+            {/* OPTIONAL 3RD ROW: 2 Extra Cabin Seats for 6-Seat Vehicles */}
+            {showExtraRow && (
+              <>
+                <div className="flex items-center gap-2 px-2">
+                  <span className="h-px flex-1 bg-slate-200" />
+                  <span className="w-12 h-1.5 rounded-full bg-slate-200" />
+                  <span className="h-px flex-1 bg-slate-200" />
+                </div>
+                <div className="grid grid-cols-2 gap-2 items-stretch">
+                  {renderPassengerSeat({
+                    id: 'extra_left',
+                    label: seatLabels.extra_left,
+                    compact: true,
+                  })}
+                  {renderPassengerSeat({
+                    id: 'extra_right',
+                    label: seatLabels.extra_right,
+                    compact: true,
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Tinted Rear Window */}
@@ -288,7 +330,7 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
             </span>
           )}
         </div>
-        {seatPrices && selectedSeats.length > 0 && (
+        {(seatPrices || fullCarMode) && selectedSeats.length > 0 && (
           <span className="font-bold font-mono tabular-nums text-[#05203C]">
             {formatIqd(selectedSubtotal)}
           </span>

@@ -189,6 +189,8 @@ export const IRAQ_GARAGES: Garage[] = [
 
 export const SUPPORT_PHONE_NUMBER = '+9647738235028';
 export const SUPPORT_WHATSAPP_URL = 'https://wa.me/9647738235028';
+export const RAFIDAIN_TRANSFER_NUMBER = '07738235028';
+export const WEEKLY_DRIVER_COMMISSION_IQD = 20000;
 
 export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   pointsPerTrip: 5000,

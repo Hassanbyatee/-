@@ -7,19 +7,46 @@ export type TripStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled'
 export type BookingStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'completed';
 export type PaymentStatus = 'unpaid' | 'paid' | 'disputed' | 'refunded';
 export type PaymentMethod = 'cash' | 'points';
-export type CabinSeatId = 'front_passenger' | 'rear_right' | 'rear_middle' | 'rear_left';
-export const CABIN_SEAT_IDS: CabinSeatId[] = [
+export type CabinSeatId =
+  | 'front_passenger'
+  | 'rear_right'
+  | 'rear_middle'
+  | 'rear_left'
+  | 'extra_right'
+  | 'extra_left';
+export const CABIN_SEAT_IDS_4: CabinSeatId[] = [
   'front_passenger',
   'rear_right',
   'rear_middle',
   'rear_left',
 ];
-export type SeatPricesMap = Record<CabinSeatId, number>;
+export const CABIN_SEAT_IDS_6: CabinSeatId[] = [
+  'front_passenger',
+  'rear_right',
+  'rear_middle',
+  'rear_left',
+  'extra_right',
+  'extra_left',
+];
+export const CABIN_SEAT_IDS: CabinSeatId[] = CABIN_SEAT_IDS_4;
+
+export function getSeatIdsForCapacity(totalSeats?: number): CabinSeatId[] {
+  return Number(totalSeats) >= 6 ? CABIN_SEAT_IDS_6 : CABIN_SEAT_IDS_4;
+}
+
+export type SeatPricesMap = {
+  front_passenger: number;
+  rear_right: number;
+  rear_middle: number;
+  rear_left: number;
+  extra_right?: number;
+  extra_left?: number;
+};
 
 export function resolveTripSeatPrices(trip?: {
   pricePerSeatIqd?: number;
   seatPrices?: Partial<Record<CabinSeatId, number>>;
-} | null): SeatPricesMap {
+} | null): Required<SeatPricesMap> {
   const base = Number(trip?.pricePerSeatIqd) > 0 ? Number(trip?.pricePerSeatIqd) : 25000;
   return {
     front_passenger:
@@ -38,6 +65,14 @@ export function resolveTripSeatPrices(trip?: {
       Number(trip?.seatPrices?.rear_left) > 0
         ? Number(trip?.seatPrices?.rear_left)
         : base,
+    extra_right:
+      Number(trip?.seatPrices?.extra_right) > 0
+        ? Number(trip?.seatPrices?.extra_right)
+        : base,
+    extra_left:
+      Number(trip?.seatPrices?.extra_left) > 0
+        ? Number(trip?.seatPrices?.extra_left)
+        : base,
   };
 }
 
@@ -49,19 +84,40 @@ export function getTripSeatPrice(
 }
 
 export function getTripMinSeatPrice(trip?: {
+  totalSeats?: number;
   pricePerSeatIqd?: number;
   seatPrices?: Partial<Record<CabinSeatId, number>>;
 } | null): number {
   const map = resolveTripSeatPrices(trip);
-  return Math.min(map.front_passenger, map.rear_right, map.rear_middle, map.rear_left);
+  const activeIds = getSeatIdsForCapacity(trip?.totalSeats);
+  return Math.min(...activeIds.map((id) => map[id]));
 }
 
 export function getTripMaxSeatPrice(trip?: {
+  totalSeats?: number;
   pricePerSeatIqd?: number;
   seatPrices?: Partial<Record<CabinSeatId, number>>;
 } | null): number {
   const map = resolveTripSeatPrices(trip);
-  return Math.max(map.front_passenger, map.rear_right, map.rear_middle, map.rear_left);
+  const activeIds = getSeatIdsForCapacity(trip?.totalSeats);
+  return Math.max(...activeIds.map((id) => map[id]));
+}
+
+export function isTripCompletelyEmpty(trip?: {
+  status?: TripStatus;
+  bookedSeats?: CabinSeatId[];
+  confirmedSeatsCount?: number;
+  availableSeats?: number;
+  totalSeats?: number;
+} | null): boolean {
+  if (!trip) return false;
+  return (
+    trip.status === 'scheduled' &&
+    (trip.bookedSeats?.length || 0) === 0 &&
+    (trip.confirmedSeatsCount || 0) === 0 &&
+    Number(trip.availableSeats) === Number(trip.totalSeats) &&
+    Number(trip.totalSeats) > 0
+  );
 }
 
 export interface UserProfile {
@@ -204,6 +260,7 @@ export interface Trip {
   estimatedDurationMin?: number;
   pricePerSeatIqd: number;
   seatPrices?: SeatPricesMap;
+  fullCarPriceIqd?: number;
   cargoEnabled?: boolean;
   cargoPriceIqd?: number;
   originalPriceIqd?: number;
@@ -245,6 +302,7 @@ export interface Booking {
   totalPriceIqd: number;
   pointsRedeemed: number;
   isFreeTrip: boolean;
+  isFullCar?: boolean;
   isRoundTrip?: boolean;
   returnTripId?: string;
   passengerNotes?: string;
@@ -381,4 +439,64 @@ export interface PlatformSettings {
   supportPhone?: string;
   supportEmail?: string;
   updatedAt?: unknown;
+}
+
+export type WeeklyFeeStatus = 'pending' | 'approved' | 'rejected';
+
+export interface DriverWeeklyFee {
+  id: string;
+  driverId: string;
+  driverName: string;
+  driverPhone?: string;
+  senderNameOnTransfer: string;
+  weekKey: string;
+  amountIqd: number;
+  rafidainNumber: string;
+  status: WeeklyFeeStatus;
+  adminNotes?: string;
+  reviewedBy?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+const BAGHDAD_OFFSET_MS = 3 * 3600 * 1000;
+
+export function getWeekKey(input?: string | Date | { seconds?: number }): string {
+  let date: Date;
+  if (typeof input === 'string' && /^\d{4}-\d{2}-\d{2}/.test(input)) {
+    const [y, m, d] = input.slice(0, 10).split('-').map(Number);
+    date = new Date(Date.UTC(y, m - 1, d));
+  } else if (input instanceof Date) {
+    const baghdad = new Date(input.getTime() + BAGHDAD_OFFSET_MS);
+    date = new Date(Date.UTC(baghdad.getUTCFullYear(), baghdad.getUTCMonth(), baghdad.getUTCDate()));
+  } else if (input && typeof input === 'object' && typeof input.seconds === 'number') {
+    const baghdad = new Date(input.seconds * 1000 + BAGHDAD_OFFSET_MS);
+    date = new Date(Date.UTC(baghdad.getUTCFullYear(), baghdad.getUTCMonth(), baghdad.getUTCDate()));
+  } else {
+    const baghdadNow = new Date(Date.now() + BAGHDAD_OFFSET_MS);
+    date = new Date(Date.UTC(baghdadNow.getUTCFullYear(), baghdadNow.getUTCMonth(), baghdadNow.getUTCDate()));
+  }
+
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+export function getTripWeekKey(trip: {
+  departureDate?: string;
+  createdAt?: unknown;
+}): string {
+  const ts = trip.createdAt as { seconds?: number; toDate?: () => Date } | undefined;
+  if (ts && typeof ts.toDate === 'function') {
+    return getWeekKey(ts.toDate());
+  }
+  if (ts && typeof ts.seconds === 'number') {
+    return getWeekKey({ seconds: ts.seconds });
+  }
+  if (trip.departureDate) {
+    return getWeekKey(trip.departureDate);
+  }
+  return getWeekKey();
 }

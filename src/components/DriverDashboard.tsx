@@ -4,8 +4,13 @@ import {
   Banknote,
   Calendar,
   Car,
+  Check,
   CheckCircle2,
   ClipboardList,
+  Clock,
+  Copy,
+  CreditCard,
+  Lock,
   MapPin,
   Navigation,
   Package,
@@ -22,6 +27,7 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
+import { RAFIDAIN_TRANSFER_NUMBER, WEEKLY_DRIVER_COMMISSION_IQD } from '../data/iraqReferenceData';
 import { compressImageToDataUrl, uploadVerificationImage } from '../services/imageUtils';
 import {
   acceptBookingTransaction,
@@ -30,6 +36,7 @@ import {
   deleteTrip,
   publishTrip,
   rejectBookingTransaction,
+  submitWeeklyCommissionPayment,
   toggleDriverAvailability,
   updateDriverDocumentsAndVehicle,
   updateTripDetails,
@@ -38,12 +45,16 @@ import {
 } from '../services/platformService';
 import { AnimatedModalShell } from './motion/KineticPrimitives';
 import {
+  getSeatIdsForCapacity,
   getTripMaxSeatPrice,
   getTripMinSeatPrice,
   getTripSeatPrice,
+  getTripWeekKey,
+  getWeekKey,
   resolveTripSeatPrices,
   type Booking,
   type CabinSeatId,
+  type DriverWeeklyFee,
   type Payment,
   type Review,
   type SeatPricesMap,
@@ -52,8 +63,6 @@ import {
 } from '../types/domain';
 
 type DriverTab = 'overview' | 'requests' | 'trips' | 'publish' | 'docs' | 'earnings' | 'reviews';
-
-const CABIN_SEAT_ORDER: CabinSeatId[] = ['front_passenger', 'rear_right', 'rear_middle', 'rear_left'];
 
 export const DriverDashboard: React.FC = () => {
   const { getLocalizedName, formatIqd, t } = useI18n();
@@ -65,7 +74,11 @@ export const DriverDashboard: React.FC = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [weeklyFees, setWeeklyFees] = useState<DriverWeeklyFee[]>([]);
   const [addTripModalOpen, setAddTripModalOpen] = useState(false);
+  const [weeklyModalOpen, setWeeklyModalOpen] = useState(false);
+  const [transferSenderName, setTransferSenderName] = useState('');
+  const [copiedRafidain, setCopiedRafidain] = useState(false);
   const [editingTripId, setEditingTripId] = useState<string | null>(null);
   const [confirmDeleteTripId, setConfirmDeleteTripId] = useState<string | null>(null);
 
@@ -76,12 +89,16 @@ export const DriverDashboard: React.FC = () => {
   const [dstGarageId, setDstGarageId] = useState('');
   const [depDate, setDepDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [depTime, setDepTime] = useState('08:00');
+  const [tripTotalSeats, setTripTotalSeats] = useState<4 | 6>(4);
+  const [fullCarPriceIqd, setFullCarPriceIqd] = useState<number>(0);
   const [baseSeatPrice, setBaseSeatPrice] = useState(25000);
   const [seatPrices, setSeatPrices] = useState<SeatPricesMap>({
     front_passenger: 30000,
     rear_right: 25000,
     rear_middle: 20000,
     rear_left: 25000,
+    extra_right: 25000,
+    extra_left: 25000,
   });
   const [cargoEnabled, setCargoEnabled] = useState(false);
   const [cargoPriceIqd, setCargoPriceIqd] = useState(10000);
@@ -122,6 +139,7 @@ export const DriverDashboard: React.FC = () => {
       setIdDocUrl(driverProfile.idDocumentUrl || '');
       setLicDocUrl(driverProfile.licenseDocumentUrl || '');
       setBio(driverProfile.bio || '');
+      setTransferSenderName((prev) => prev || driverProfile.fullName || '');
     }
   }, [driverProfile]);
 
@@ -183,9 +201,36 @@ export const DriverDashboard: React.FC = () => {
         (snap) => setReviews(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Review, 'id'>) }))),
         (err) => handleFirestoreError(err, OperationType.LIST, 'reviews')
       ),
+      onSnapshot(
+        query(collection(db, 'driver_weekly_fees'), where('driverId', '==', uid)),
+        (snap) =>
+          setWeeklyFees(
+            snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<DriverWeeklyFee, 'id'>) }))
+          ),
+        (err) => handleFirestoreError(err, OperationType.LIST, 'driver_weekly_fees')
+      ),
     ];
     return () => unsubs.forEach((u) => u());
   }, [firebaseUser]);
+
+  const currentWeekKey = useMemo(() => getWeekKey(), []);
+
+  const currentWeekTrips = useMemo(
+    () =>
+      driverTrips.filter(
+        (tr) => tr.status !== 'cancelled' && getTripWeekKey(tr) === currentWeekKey
+      ),
+    [driverTrips, currentWeekKey]
+  );
+
+  const currentWeekFee = useMemo(
+    () => weeklyFees.find((f) => f.weekKey === currentWeekKey) || null,
+    [weeklyFees, currentWeekKey]
+  );
+
+  const isWeeklyFeeApproved = currentWeekFee?.status === 'approved';
+  const isWeeklyGateTriggered = currentWeekTrips.length >= 1;
+  const isWeeklyBlocked = isWeeklyGateTriggered && !isWeeklyFeeApproved;
 
   const paymentMap = useMemo(() => {
     const m = new Map<string, Payment>();
@@ -230,7 +275,11 @@ export const DriverDashboard: React.FC = () => {
     rear_right: t.booking.seatRearRight,
     rear_middle: t.booking.seatRearMiddle,
     rear_left: t.booking.seatRearLeft,
+    extra_right: t.booking.seatExtraRight,
+    extra_left: t.booking.seatExtraLeft,
   };
+
+  const activeFormSeatOrder = getSeatIdsForCapacity(tripTotalSeats);
 
   const resetTripForm = () => {
     setEditingTripId(null);
@@ -240,12 +289,16 @@ export const DriverDashboard: React.FC = () => {
     setDstGarageId('');
     setDepDate(new Date().toISOString().split('T')[0]);
     setDepTime('08:00');
+    setTripTotalSeats(primaryVehicle && Number(primaryVehicle.passengerCapacity) >= 6 ? 6 : 4);
+    setFullCarPriceIqd(0);
     setBaseSeatPrice(25000);
     setSeatPrices({
       front_passenger: 30000,
       rear_right: 25000,
       rear_middle: 20000,
       rear_left: 25000,
+      extra_right: 25000,
+      extra_left: 25000,
     });
     setCargoEnabled(false);
     setCargoPriceIqd(10000);
@@ -257,6 +310,16 @@ export const DriverDashboard: React.FC = () => {
   const openNewTripModal = () => {
     if (!isApproved) {
       notify('err', t.errors.unapprovedDriver);
+      return;
+    }
+    if (isWeeklyBlocked) {
+      notify(
+        'err',
+        currentWeekFee?.status === 'pending'
+          ? t.errors.weeklyCommissionPending
+          : t.errors.weeklyCommissionRequired
+      );
+      setWeeklyModalOpen(true);
       return;
     }
     resetTripForm();
@@ -272,6 +335,8 @@ export const DriverDashboard: React.FC = () => {
     setDstGarageId(tr.destinationGarageId || '');
     setDepDate(tr.departureDate);
     setDepTime(tr.departureTime);
+    setTripTotalSeats(Number(tr.totalSeats) >= 6 ? 6 : 4);
+    setFullCarPriceIqd(Number(tr.fullCarPriceIqd || 0));
     setBaseSeatPrice(tr.pricePerSeatIqd || 25000);
     setSeatPrices(resolved);
     setCargoEnabled(Boolean(tr.cargoEnabled));
@@ -289,7 +354,59 @@ export const DriverDashboard: React.FC = () => {
       rear_right: clean,
       rear_middle: clean,
       rear_left: clean,
+      extra_right: clean,
+      extra_left: clean,
     });
+  };
+
+  const handleCopyRafidain = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(RAFIDAIN_TRANSFER_NUMBER);
+      } else {
+        const el = document.createElement('textarea');
+        el.value = RAFIDAIN_TRANSFER_NUMBER;
+        el.style.position = 'fixed';
+        el.style.opacity = '0';
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      }
+      setCopiedRafidain(true);
+      setTimeout(() => setCopiedRafidain(false), 2500);
+    } catch {
+      setCopiedRafidain(true);
+      setTimeout(() => setCopiedRafidain(false), 2500);
+    }
+  };
+
+  const handleSubmitWeeklyFee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!driverProfile) return;
+    if (transferSenderName.trim().length < 2) {
+      notify('err', t.errors.invalidTransferName);
+      return;
+    }
+    setBusy(true);
+    try {
+      await submitWeeklyCommissionPayment({
+        driver: driverProfile,
+        senderNameOnTransfer: transferSenderName,
+        weekKey: currentWeekKey,
+      });
+      notify('ok', t.driver.weeklyFeeSubmittedSuccess);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'WEEKLY_COMMISSION_PENDING') {
+        notify('err', t.errors.weeklyCommissionPending);
+      } else if (err instanceof Error && err.message === 'INVALID_TRANSFER_NAME') {
+        notify('err', t.errors.invalidTransferName);
+      } else {
+        notify('err', t.errors.generic);
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handlePublishTrip = async (e: React.FormEvent) => {
@@ -298,16 +415,24 @@ export const DriverDashboard: React.FC = () => {
       notify('err', t.errors.unapprovedDriver);
       return;
     }
+    if (!editingTripId && isWeeklyBlocked) {
+      notify(
+        'err',
+        currentWeekFee?.status === 'pending'
+          ? t.errors.weeklyCommissionPending
+          : t.errors.weeklyCommissionRequired
+      );
+      setWeeklyModalOpen(true);
+      return;
+    }
     if (depGovId === dstGovId) {
       notify('err', t.errors.sameGovernorate);
       return;
     }
-    const minSeatPrice = Math.min(
-      seatPrices.front_passenger,
-      seatPrices.rear_right,
-      seatPrices.rear_middle,
-      seatPrices.rear_left
-    );
+    const seatsToCheck = getSeatIdsForCapacity(tripTotalSeats);
+    const minSeatPrice = Math.min(...seatsToCheck.map((s) => Number(seatPrices[s]) || 25000));
+    const cleanFullCarPrice = Math.max(0, Number(fullCarPriceIqd) || 0);
+    const wasFirstTripOfWeek = currentWeekTrips.length === 0;
     setBusy(true);
     try {
       if (editingTripId) {
@@ -321,6 +446,8 @@ export const DriverDashboard: React.FC = () => {
           estimatedDurationMin: estDuration,
           pricePerSeatIqd: minSeatPrice,
           seatPrices,
+          fullCarPriceIqd: cleanFullCarPrice,
+          totalSeats: tripTotalSeats,
           cargoEnabled,
           cargoPriceIqd: cargoEnabled ? cargoPriceIqd : 0,
           notes: tripNotes,
@@ -345,19 +472,33 @@ export const DriverDashboard: React.FC = () => {
           estimatedDurationMin: estDuration,
           pricePerSeatIqd: minSeatPrice,
           seatPrices,
+          fullCarPriceIqd: cleanFullCarPrice,
           cargoEnabled,
           cargoPriceIqd: cargoEnabled ? cargoPriceIqd : 0,
           originalPriceIqd: origPriceIqd > minSeatPrice ? origPriceIqd : undefined,
-          totalSeats: 4,
+          totalSeats: tripTotalSeats,
           notes: tripNotes,
         });
         resetTripForm();
         setAddTripModalOpen(false);
         notify('ok', t.driver.savedSuccess);
         setTab('trips');
+        if (wasFirstTripOfWeek && !isWeeklyFeeApproved) {
+          setWeeklyModalOpen(true);
+        }
       }
-    } catch {
-      notify('err', t.errors.generic);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'WEEKLY_COMMISSION_REQUIRED') {
+        notify('err', t.errors.weeklyCommissionRequired);
+        setAddTripModalOpen(false);
+        setWeeklyModalOpen(true);
+      } else if (err instanceof Error && err.message === 'WEEKLY_COMMISSION_PENDING') {
+        notify('err', t.errors.weeklyCommissionPending);
+        setAddTripModalOpen(false);
+        setWeeklyModalOpen(true);
+      } else {
+        notify('err', t.errors.generic);
+      }
     } finally {
       setBusy(false);
     }
@@ -430,13 +571,13 @@ export const DriverDashboard: React.FC = () => {
         </div>
         <div className="flex items-center gap-2 text-[11px] font-semibold text-[#0559B8] bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg px-2.5 py-1.5">
           <Users className="w-3.5 h-3.5 shrink-0" />
-          <span>{t.driver.fourCabinSeatsReady}</span>
+          <span>{tripTotalSeats === 6 ? t.driver.sixCabinSeatsReady : t.driver.fourCabinSeatsReady}</span>
         </div>
       </div>
 
       {!isApproved && (
         <div
-          className={`border rounded-xl p-3.5 flex items-start gap-2.5 text-xs ${
+          className={`border rounded-2xl p-3.5 flex items-start gap-2.5 text-xs ${
             driverProfile.verificationStatus === 'rejected'
               ? 'bg-rose-50 border-rose-200 text-rose-900'
               : 'bg-amber-50 border-amber-200 text-amber-900'
@@ -451,6 +592,31 @@ export const DriverDashboard: React.FC = () => {
             </div>
             <p>{driverProfile.rejectionReason || t.driver.verificationPendingDesc}</p>
           </div>
+        </div>
+      )}
+
+      {isApproved && !editingTripId && isWeeklyBlocked && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950">
+          <div className="flex items-start gap-2">
+            <Lock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">
+                {currentWeekFee?.status === 'pending'
+                  ? t.driver.weeklyFeeBannerPendingTitle
+                  : t.driver.weeklyFeeBannerDueTitle}
+              </div>
+              <p className="text-amber-800 mt-0.5">{t.driver.weeklyFeeBannerDueDesc}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setWeeklyModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-[#05203C] text-white font-bold text-xs hover:bg-[#0770E3] transition-colors shrink-0 cursor-pointer"
+          >
+            {currentWeekFee?.status === 'pending'
+              ? t.driver.viewPaymentDetailsBtn
+              : t.driver.payWeeklyFeeBtn}
+          </button>
         </div>
       )}
 
@@ -589,33 +755,63 @@ export const DriverDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Per-Seat Pricing Set by the Captain (4 Cabin Seats) */}
+      {/* Vehicle Seat Capacity (4 vs 6) + Optional Full-Car Pricing Set by Captain */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+            {t.driver.seatCapacityLabel}
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {([4, 6] as const).map((cap) => (
+              <button
+                key={cap}
+                type="button"
+                onClick={() => setTripTotalSeats(cap)}
+                className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${
+                  tripTotalSeats === cap
+                    ? 'bg-[#0770E3] text-white border-[#0770E3]'
+                    : 'bg-slate-50 text-[#05203C] border-slate-300 hover:border-[#0770E3]'
+                }`}
+              >
+                {cap === 4 ? t.driver.capacity4Seats : t.driver.capacity6Seats}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+            {t.driver.fullCarPriceLabel}
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              max={2000000}
+              step={1000}
+              placeholder={t.driver.fullCarPricePlaceholder}
+              value={fullCarPriceIqd || ''}
+              onChange={(e) => setFullCarPriceIqd(Math.max(0, Number(e.target.value) || 0))}
+              className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl font-mono tabular-nums"
+            />
+            <span className="text-xs font-mono text-slate-500 shrink-0">{t.currency}</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">{t.driver.fullCarPriceHint}</p>
+        </div>
+      </div>
+
+      {/* Per-Seat Pricing Set by the Captain (4 or 6 Cabin Seats) */}
       <div className="bg-[#F7F9FB] border border-[#E0E4E8] rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-bold text-[#05203C]">{t.driver.perSeatPricingTitle}</span>
           <span className="text-[11px] font-mono font-semibold text-[#0770E3] tabular-nums">
-            {formatIqd(
-              Math.min(
-                seatPrices.front_passenger,
-                seatPrices.rear_right,
-                seatPrices.rear_middle,
-                seatPrices.rear_left
-              )
-            )}{' '}
-            –{' '}
-            {formatIqd(
-              Math.max(
-                seatPrices.front_passenger,
-                seatPrices.rear_right,
-                seatPrices.rear_middle,
-                seatPrices.rear_left
-              )
-            )}
+            {formatIqd(Math.min(...activeFormSeatOrder.map((s) => Number(seatPrices[s]) || 25000)))} –{' '}
+            {formatIqd(Math.max(...activeFormSeatOrder.map((s) => Number(seatPrices[s]) || 25000)))}
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {CABIN_SEAT_ORDER.map((seatId) => (
+          {activeFormSeatOrder.map((seatId) => (
             <div key={seatId} className="bg-white border border-slate-200 rounded-xl p-3 space-y-1.5">
               <label className="block text-xs font-semibold text-[#05203C]">
                 {seatLabelMap[seatId]}
@@ -627,7 +823,7 @@ export const DriverDashboard: React.FC = () => {
                   max={500000}
                   step={500}
                   required
-                  value={seatPrices[seatId]}
+                  value={seatPrices[seatId] ?? 25000}
                   onChange={(e) =>
                     setSeatPrices((prev) => ({
                       ...prev,
@@ -817,6 +1013,86 @@ export const DriverDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Weekly 20,000 IQD Commission Gate Banner (Shown once driver starts 1st trip of the week) */}
+      {isApproved && isWeeklyGateTriggered && (
+        <div
+          className={`border rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+            isWeeklyFeeApproved
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+              : currentWeekFee?.status === 'pending'
+                ? 'bg-amber-50 border-amber-300 text-amber-950'
+                : currentWeekFee?.status === 'rejected'
+                  ? 'bg-rose-50 border-rose-300 text-rose-950'
+                  : 'bg-[#05203C] border-[#05203C] text-white'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            {isWeeklyFeeApproved ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            ) : currentWeekFee?.status === 'pending' ? (
+              <Clock className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+            ) : (
+              <CreditCard
+                className={`w-5 h-5 shrink-0 mt-0.5 ${
+                  currentWeekFee?.status === 'rejected' ? 'text-rose-700' : 'text-[#60A5FA]'
+                }`}
+              />
+            )}
+            <div className="space-y-1">
+              <div className="text-sm font-bold flex flex-wrap items-center gap-2">
+                <span>
+                  {isWeeklyFeeApproved
+                    ? t.driver.weeklyFeeBannerApprovedTitle
+                    : currentWeekFee?.status === 'pending'
+                      ? t.driver.weeklyFeeBannerPendingTitle
+                      : currentWeekFee?.status === 'rejected'
+                        ? t.driver.weeklyFeeBannerRejectedTitle
+                        : t.driver.weeklyFeeBannerDueTitle}
+                </span>
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-black/10">
+                  {currentWeekKey}
+                </span>
+              </div>
+              {!isWeeklyFeeApproved && (
+                <p
+                  className={`text-xs ${
+                    currentWeekFee?.status === 'pending'
+                      ? 'text-amber-900'
+                      : currentWeekFee?.status === 'rejected'
+                        ? 'text-rose-800'
+                        : 'text-slate-200'
+                  }`}
+                >
+                  {currentWeekFee?.status === 'pending'
+                    ? `${t.driver.weeklyFeeBannerPendingDesc} "${currentWeekFee.senderNameOnTransfer}"`
+                    : currentWeekFee?.status === 'rejected' && currentWeekFee.adminNotes
+                      ? currentWeekFee.adminNotes
+                      : t.driver.weeklyFeeBannerDueDesc}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {!isWeeklyFeeApproved && (
+            <button
+              type="button"
+              onClick={() => setWeeklyModalOpen(true)}
+              className={`btn-tactile px-4 py-2.5 rounded-xl text-xs font-bold shrink-0 cursor-pointer transition-colors ${
+                currentWeekFee?.status === 'pending'
+                  ? 'bg-amber-900 text-white hover:bg-amber-800'
+                  : currentWeekFee?.status === 'rejected'
+                    ? 'bg-rose-700 text-white hover:bg-rose-800'
+                    : 'bg-[#0770E3] text-white hover:bg-[#3B82F6]'
+              }`}
+            >
+              {currentWeekFee?.status === 'pending'
+                ? t.driver.viewPaymentDetailsBtn
+                : t.driver.payWeeklyFeeBtn}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-2 border-b border-slate-200">
         {tabs.map((item) => (
@@ -875,8 +1151,15 @@ export const DriverDashboard: React.FC = () => {
                           </>
                         )}
                       </div>
-                      <h3 className="text-base font-bold text-slate-900 mt-1">
-                        {bk.passengerName} — {dep} → {dst}
+                      <h3 className="text-base font-bold text-slate-900 mt-1 flex flex-wrap items-center gap-2">
+                        <span>
+                          {bk.passengerName} — {dep} → {dst}
+                        </span>
+                        {bk.isFullCar && (
+                          <span className="px-2 py-0.5 text-[11px] font-bold bg-[#EFF6FF] text-[#0559B8] border border-[#BFDBFE] rounded-md">
+                            {t.driver.fullCarBadge}
+                          </span>
+                        )}
                       </h3>
                       <p className="text-xs text-slate-600 mt-0.5">
                         {bk.seatsCount} {t.hero.seatsLabel}
@@ -1054,6 +1337,11 @@ export const DriverDashboard: React.FC = () => {
                             ? formatIqd(minPrice)
                             : `${formatIqd(minPrice)} – ${formatIqd(maxPrice)}`}
                         </span>
+                        {Number(tr.fullCarPriceIqd || 0) > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#EFF6FF] border border-[#BFDBFE] text-[#0559B8] font-semibold">
+                            {t.tripCard.fullCarPriceLabel}: {formatIqd(Number(tr.fullCarPriceIqd))}
+                          </span>
+                        )}
                         {tr.cargoEnabled && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold">
                             <Package className="w-3 h-3" />
@@ -1159,11 +1447,13 @@ export const DriverDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* 4-Seat Cabin Overview */}
+                  {/* 4 or 6-Seat Cabin Overview */}
                   <div className="bg-[#F7F9FB] border border-[#E0E4E8] rounded-xl p-3 space-y-2">
-                    <div className="text-[11px] font-bold text-[#05203C]">{t.driver.cabinSeatsOverview}</div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {CABIN_SEAT_ORDER.map((seatId) => {
+                    <div className="text-[11px] font-bold text-[#05203C]">
+                      {Number(tr.totalSeats) >= 6 ? t.driver.cabinSeatsOverview6 : t.driver.cabinSeatsOverview}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                      {getSeatIdsForCapacity(tr.totalSeats).map((seatId) => {
                         const isBooked = bookedSet.has(seatId);
                         const seatPrice = getTripSeatPrice(tr, seatId);
                         return (
@@ -1210,6 +1500,11 @@ export const DriverDashboard: React.FC = () => {
                                 <span className="text-[11px] font-semibold text-[#0770E3]">
                                   {t.statuses[bk.status]}
                                 </span>
+                                {bk.isFullCar && (
+                                  <span className="px-2 py-0.5 text-[10px] font-bold bg-[#EFF6FF] text-[#0559B8] border border-[#BFDBFE] rounded-md">
+                                    {t.driver.fullCarBadge}
+                                  </span>
+                                )}
                                 {bk.passengerPhone && (
                                   <span className="font-mono text-slate-600" dir="ltr">
                                     {bk.passengerPhone}
@@ -1574,6 +1869,162 @@ export const DriverDashboard: React.FC = () => {
           ))}
         </div>
       )}
+
+      {/* WEEKLY 20,000 IQD RAFIDAIN COMMISSION PAYMENT MODAL */}
+      <AnimatedModalShell
+        isOpen={weeklyModalOpen}
+        onClose={() => setWeeklyModalOpen(false)}
+        maxWidthClass="max-w-lg"
+      >
+        <div className="bg-white border border-[#E0E4E8] rounded-2xl overflow-hidden shadow-[var(--shadow-elevated)] max-h-[92vh] flex flex-col">
+          <div className="bg-[#05203C] text-white px-6 py-4 flex items-center justify-between gap-4 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <CreditCard className="w-5 h-5 text-[#60A5FA] shrink-0" />
+              <div>
+                <h2 className="text-base sm:text-lg font-bold">{t.driver.weeklyFeeModalTitle}</h2>
+                <p className="text-xs text-slate-300 mt-0.5">{t.driver.weeklyFeeModalSubtitle}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWeeklyModalOpen(false)}
+              aria-label={t.common.close}
+              className="p-2 rounded-xl text-white/75 hover:text-white hover:bg-white/10 cursor-pointer shrink-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-4 overflow-y-auto">
+            {/* Amount & Week Summary */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-[#F7F9FB] border border-[#E0E4E8] rounded-xl p-3.5">
+                <div className="text-[11px] font-semibold text-slate-500">
+                  {t.driver.weeklyFeeAmountLabel}
+                </div>
+                <div className="text-xl font-extrabold font-mono text-[#05203C] mt-1 tabular-nums">
+                  {formatIqd(WEEKLY_DRIVER_COMMISSION_IQD)}
+                </div>
+              </div>
+              <div className="bg-[#F7F9FB] border border-[#E0E4E8] rounded-xl p-3.5">
+                <div className="text-[11px] font-semibold text-slate-500">
+                  {t.driver.weeklyFeeWeekLabel}
+                </div>
+                <div className="text-lg font-bold font-mono text-[#0770E3] mt-1 tabular-nums" dir="ltr">
+                  {currentWeekKey}
+                </div>
+              </div>
+            </div>
+
+            {/* Rafidain Transfer Number Card with One-Tap Copy */}
+            <div className="bg-[#EFF6FF] border-2 border-[#93C5FD] rounded-2xl p-4 space-y-2.5">
+              <div className="text-xs font-bold text-[#0559B8]">
+                {t.driver.rafidainNumberLabel}
+              </div>
+              <div className="flex items-center justify-between gap-3 bg-white border border-[#BFDBFE] rounded-xl px-4 py-3">
+                <span
+                  className="text-xl sm:text-2xl font-extrabold font-mono tracking-wider text-[#05203C] select-all"
+                  dir="ltr"
+                >
+                  {RAFIDAIN_TRANSFER_NUMBER}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyRafidain}
+                  className={`btn-tactile inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0 ${
+                    copiedRafidain
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-[#0770E3] text-white hover:bg-[#0559B8]'
+                  }`}
+                >
+                  {copiedRafidain ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>{t.driver.copiedBadge}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      <span>{t.driver.copyNumberBtn}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Prominent Transfer Notes Requirement */}
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="text-xs sm:text-sm font-bold text-amber-950">
+                  {t.driver.transferNotesNoticeTitle}
+                </div>
+                <p className="text-xs text-amber-900 leading-relaxed">
+                  {t.driver.transferNotesNoticeBody}
+                </p>
+              </div>
+            </div>
+
+            {/* Existing Submission Status Banner */}
+            {currentWeekFee && (
+              <div
+                className={`rounded-xl p-3.5 border text-xs space-y-1 ${
+                  currentWeekFee.status === 'approved'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : currentWeekFee.status === 'rejected'
+                      ? 'bg-rose-50 border-rose-200 text-rose-900'
+                      : 'bg-slate-50 border-slate-200 text-slate-800'
+                }`}
+              >
+                <div className="font-bold flex items-center justify-between gap-2">
+                  <span>{t.statuses[currentWeekFee.status]}</span>
+                  <span className="font-mono">{currentWeekFee.senderNameOnTransfer}</span>
+                </div>
+                {currentWeekFee.status === 'rejected' && currentWeekFee.adminNotes && (
+                  <p>{currentWeekFee.adminNotes}</p>
+                )}
+              </div>
+            )}
+
+            {/* Submission Form (shown if not submitted yet or rejected) */}
+            {(!currentWeekFee || currentWeekFee.status === 'rejected') && (
+              <form onSubmit={handleSubmitWeeklyFee} className="space-y-3 pt-1">
+                <div>
+                  <label className="block text-xs font-bold text-[#05203C] mb-1.5">
+                    {t.driver.driverTransferNameLabel}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    minLength={2}
+                    maxLength={120}
+                    placeholder={t.driver.driverTransferNamePlaceholder}
+                    value={transferSenderName}
+                    onChange={(e) => setTransferSenderName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:outline-none focus:border-[#0770E3]"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setWeeklyModalOpen(false)}
+                    className="px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 cursor-pointer"
+                  >
+                    {t.common.close}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="btn-tactile px-5 py-2.5 text-xs sm:text-sm font-bold bg-[#0770E3] text-white rounded-xl hover:bg-[#0559B8] disabled:opacity-50 cursor-pointer"
+                  >
+                    {t.driver.submitWeeklyFeeBtn}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      </AnimatedModalShell>
     </div>
   );
 };

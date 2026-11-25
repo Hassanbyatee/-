@@ -15,4 +15,6 @@ export const DIRTY_DOZEN_SECURITY_CASES = [
   { id: 10, name: 'Blanket unauthenticated/unscoped bookings list', path: '/bookings', operation: 'list', expected: 'PERMISSION_DENIED' },
   { id: 11, name: 'Driver altering price after confirmed bookings', path: '/trips/t_booked', operation: 'update', expected: 'PERMISSION_DENIED' },
   { id: 12, name: 'Resource poisoning via oversized ID or notes', path: '/trips/' + 'x'.repeat(200), operation: 'create', expected: 'PERMISSION_DENIED' },
+  { id: 13, name: 'Full-car booking on non-empty trip', path: '/bookings/full_car_non_empty', operation: 'create', expected: 'PERMISSION_DENIED' },
+  { id: 14, name: 'Driver self-approving weekly 20000 IQD fee', path: '/driver_weekly_fees/d1_2026-W48', operation: 'create', expected: 'PERMISSION_DENIED' },
 ] as const;

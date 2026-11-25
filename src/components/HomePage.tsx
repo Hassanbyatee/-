@@ -7,6 +7,7 @@ import {
   Banknote,
   Calendar,
   Car,
+  CarFront,
   CheckCircle2,
   ChevronDown,
   Clock,
@@ -22,6 +23,7 @@ import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
 import { subscribeSeatAlert } from '../services/platformService';
 import { SUPPORT_PHONE_NUMBER, SUPPORT_WHATSAPP_URL } from '../data/iraqReferenceData';
+import { EmptyCarsSection } from './EmptyCarsSection';
 import { TripCard } from './TripCard';
 import {
   AnimatedCounter,
@@ -34,18 +36,26 @@ import { getTripMinSeatPrice, type Trip } from '../types/domain';
 
 interface HomePageProps {
   onSelectTripForBooking: (trip: Trip) => void;
+  onBookFullCar: (trip: Trip) => void;
   onOpenAuthWithRole: (role: 'passenger' | 'driver') => void;
-  onNavigate: (view: AppView) => void;
+  onNavigate: (view: AppView, sectionId?: string) => void;
   onOpenAdminCode?: () => void;
 }
 
-type HeroCategory = 'trips' | 'routes' | 'rewards' | 'drivers';
+type HeroCategory = 'trips' | 'empty-cars' | 'routes' | 'rewards' | 'drivers';
 type TimeWindow = 'all' | 'morning' | 'afternoon' | 'evening';
 type TripFilterPill = 'all' | 'cheapest' | 'offers' | 'morning' | 'multiSeat';
-type SubNavSection = 'destinations' | 'available-trips' | 'providers' | 'ratings' | 'facts-faq';
+type SubNavSection =
+  | 'destinations'
+  | 'empty-cars-section'
+  | 'available-trips'
+  | 'providers'
+  | 'ratings'
+  | 'facts-faq';
 
 export const HomePage: React.FC<HomePageProps> = ({
   onSelectTripForBooking,
+  onBookFullCar,
   onOpenAuthWithRole,
   onNavigate,
   onOpenAdminCode,
@@ -91,6 +101,7 @@ export const HomePage: React.FC<HomePageProps> = ({
   useEffect(() => {
     const ids: SubNavSection[] = [
       'destinations',
+      'empty-cars-section',
       'available-trips',
       'providers',
       'ratings',
@@ -248,10 +259,11 @@ export const HomePage: React.FC<HomePageProps> = ({
 
   const handleHeroCategorySelect = (cat: HeroCategory) => {
     setHeroCategory(cat);
-    if (cat === 'trips') scrollToSection('available-trips');
-    if (cat === 'routes') scrollToSection('destinations');
-    if (cat === 'rewards') scrollToSection('loyalty-section');
-    if (cat === 'drivers') scrollToSection('become-driver');
+    if (cat === 'trips') onNavigate('home', 'available-trips');
+    if (cat === 'empty-cars') onNavigate('empty-cars');
+    if (cat === 'routes') onNavigate('home', 'destinations');
+    if (cat === 'rewards') onNavigate('home', 'loyalty-section');
+    if (cat === 'drivers') onNavigate('home', 'become-driver');
   };
 
   const showToast = (msg: string) => {
@@ -271,6 +283,20 @@ export const HomePage: React.FC<HomePageProps> = ({
       return;
     }
     onSelectTripForBooking(trip);
+  };
+
+  const handleBookFullCarClick = (trip: Trip) => {
+    if (!firebaseUser) {
+      onOpenAuthWithRole('passenger');
+      return;
+    }
+    if (userProfile && (userProfile.verificationStatus !== 'approved' || userProfile.accountStatus !== 'active')) {
+      showToast(
+        `${t.errors.unapprovedUser}${userProfile.rejectionReason ? ` (${userProfile.rejectionReason})` : ''}`
+      );
+      return;
+    }
+    onBookFullCar(trip);
   };
 
   const handleSeatAlert = async (trip: Trip) => {
@@ -310,6 +336,7 @@ export const HomePage: React.FC<HomePageProps> = ({
 
   const subNavItems: Array<{ id: SubNavSection; label: string }> = [
     { id: 'destinations', label: t.subnav.popular },
+    { id: 'empty-cars-section', label: t.subnav.emptyCars },
     { id: 'available-trips', label: t.subnav.trips },
     { id: 'providers', label: t.subnav.providers },
     { id: 'ratings', label: t.subnav.ratings },
@@ -334,6 +361,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             {(
               [
                 { id: 'trips', label: t.hero.catTrips, icon: Car },
+                { id: 'empty-cars', label: t.hero.catEmptyCars, icon: CarFront },
                 { id: 'routes', label: t.hero.catRoutes, icon: MapPin },
                 { id: 'rewards', label: t.hero.catRewards, icon: Award },
                 { id: 'drivers', label: t.hero.catDrivers, icon: ShieldCheck },
@@ -537,7 +565,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                   onChange={(e) => setMinSeats(Number(e.target.value))}
                   className="px-2.5 py-1 text-xs font-mono font-semibold text-[#05203C] border border-[#CBD5E1] rounded-md bg-white tabular-nums"
                 >
-                  {[1, 2, 3, 4].map((n) => (
+                  {[1, 2, 3, 4, 5, 6].map((n) => (
                     <option key={n} value={n}>
                       {n}+
                     </option>
@@ -561,7 +589,11 @@ export const HomePage: React.FC<HomePageProps> = ({
                 type="button"
                 onClick={() => {
                   setActiveSubNav(item.id);
-                  scrollToSection(item.id);
+                  if (item.id === 'destinations' || item.id === 'available-trips') {
+                    onNavigate('home', item.id);
+                  } else {
+                    scrollToSection(item.id);
+                  }
                 }}
                 className={`h-full items-center text-xs sm:text-sm whitespace-nowrap shrink-0 border-b-2 transition-colors cursor-pointer px-1 ${
                   hideOnMobile ? 'hidden sm:inline-flex' : 'inline-flex'
@@ -700,6 +732,16 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
       </section>
 
+      {/* 3B. EMPTY CARS SECTION (FULL-CAR PRIVATE CHARTER PRICED BY CAPTAIN) */}
+      <EmptyCarsSection
+        mode="section"
+        trips={trips}
+        governorates={governorates}
+        onBookFullCar={handleBookFullCarClick}
+        onBookSeats={handleBookClick}
+        onNavigate={onNavigate}
+      />
+
       {/* 4. AVAILABLE TRIPS WITH CATEGORY FILTER PILLS */}
       <section ref={tripsSectionRef} id="available-trips" className="max-w-7xl mx-auto px-4 sm:px-6 py-10 w-full">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-5">
@@ -772,6 +814,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                   garages={garages}
                   currentUserId={firebaseUser?.uid}
                   onBook={handleBookClick}
+                  onBookFullCar={handleBookFullCarClick}
                   onSeatAlert={handleSeatAlert}
                 />
               </div>
@@ -1188,14 +1231,21 @@ export const HomePage: React.FC<HomePageProps> = ({
               <div className="flex flex-col items-start gap-2 text-xs sm:text-sm text-white/75">
                 <button
                   type="button"
-                  onClick={() => scrollToSection('available-trips')}
+                  onClick={() => onNavigate('home', 'available-trips')}
                   className="hover:text-white transition-colors cursor-pointer"
                 >
                   {t.nav.searchTrips}
                 </button>
                 <button
                   type="button"
-                  onClick={() => scrollToSection('destinations')}
+                  onClick={() => onNavigate('empty-cars')}
+                  className="hover:text-white transition-colors cursor-pointer"
+                >
+                  {t.nav.emptyCars}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('home', 'destinations')}
                   className="hover:text-white transition-colors cursor-pointer"
                 >
                   {t.nav.destinations}
@@ -1222,7 +1272,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => scrollToSection('loyalty-section')}
+                  onClick={() => onNavigate('home', 'loyalty-section')}
                   className="hover:text-white transition-colors cursor-pointer"
                 >
                   {t.nav.loyalty}

@@ -6,6 +6,7 @@ import {
   Calendar,
   Car,
   CheckCircle2,
+  CreditCard,
   Database,
   ExternalLink,
   LogIn,
@@ -26,6 +27,7 @@ import {
   adminAdjustWalletPoints,
   adminDeleteGarage,
   adminResolvePayment,
+  adminReviewWeeklyCommission,
   adminSaveGarage,
   adminSavePlatformSettings,
   adminSendNotification,
@@ -44,6 +46,7 @@ import type {
   CabinSeatId,
   Complaint,
   DriverProfile,
+  DriverWeeklyFee,
   Payment,
   PlatformSettings,
   Review,
@@ -55,6 +58,7 @@ import type {
 type AdminTab =
   | 'overview'
   | 'drivers'
+  | 'weekly_fees'
   | 'users'
   | 'geography'
   | 'trips'
@@ -73,6 +77,8 @@ export const AdminDashboard: React.FC = () => {
   const [allTrips, setAllTrips] = useState<Trip[]>([]);
   const [allBookings, setAllBookings] = useState<Booking[]>([]);
   const [allPayments, setAllPayments] = useState<Payment[]>([]);
+  const [weeklyFees, setWeeklyFees] = useState<DriverWeeklyFee[]>([]);
+  const [weeklyRejectNotes, setWeeklyRejectNotes] = useState<Record<string, string>>({});
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
 
@@ -111,6 +117,8 @@ export const AdminDashboard: React.FC = () => {
     rear_right: t.booking.seatRearRight,
     rear_middle: t.booking.seatRearMiddle,
     rear_left: t.booking.seatRearLeft,
+    extra_right: t.booking.seatExtraRight,
+    extra_left: t.booking.seatExtraLeft,
   };
 
   React.useEffect(() => {
@@ -163,6 +171,14 @@ export const AdminDashboard: React.FC = () => {
           collection(db, 'reviews'),
           (s) => setReviews(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Review, 'id'>) }))),
           (err) => console.warn('Admin reviews listener notice:', err)
+        ),
+        onSnapshot(
+          collection(db, 'driver_weekly_fees'),
+          (s) =>
+            setWeeklyFees(
+              s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<DriverWeeklyFee, 'id'>) }))
+            ),
+          (err) => console.warn('Admin weekly fees listener notice:', err)
         )
       );
     }
@@ -179,9 +195,10 @@ export const AdminDashboard: React.FC = () => {
       .reduce((sum, p) => sum + p.commissionIqd, 0);
     const pendingDrivers = drivers.filter((d) => d.verificationStatus === 'pending').length;
     const pendingUsers = users.filter((u) => u.verificationStatus === 'pending').length;
+    const pendingWeeklyFees = weeklyFees.filter((f) => f.status === 'pending').length;
     const activeTrips = allTrips.filter((tr) => ['scheduled', 'in_progress'].includes(tr.status)).length;
-    return { gmv, commission, pendingDrivers, pendingUsers, activeTrips };
-  }, [allPayments, drivers, users, allTrips]);
+    return { gmv, commission, pendingDrivers, pendingUsers, pendingWeeklyFees, activeTrips };
+  }, [allPayments, drivers, users, weeklyFees, allTrips]);
 
   const sortedDrivers = useMemo(
     () =>
@@ -203,6 +220,20 @@ export const AdminDashboard: React.FC = () => {
     [users]
   );
 
+  const sortedWeeklyFees = useMemo(
+    () =>
+      [...weeklyFees].sort((a, b) => {
+        const rank = (s: DriverWeeklyFee['status']) => (s === 'pending' ? 0 : s === 'rejected' ? 1 : 2);
+        const diff = rank(a.status) - rank(b.status);
+        if (diff !== 0) return diff;
+        return (
+          ((b.updatedAt as { seconds?: number })?.seconds || 0) -
+          ((a.updatedAt as { seconds?: number })?.seconds || 0)
+        );
+      }),
+    [weeklyFees]
+  );
+
   if (!isAdmin) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center">
@@ -220,6 +251,11 @@ export const AdminDashboard: React.FC = () => {
   const tabs: Array<{ id: AdminTab; label: string; icon: React.ReactNode }> = [
     { id: 'overview', label: t.admin.tabOverview, icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'drivers', label: `${t.admin.tabDrivers} (${stats.pendingDrivers})`, icon: <Car className="w-4 h-4" /> },
+    {
+      id: 'weekly_fees',
+      label: `${t.admin.tabWeeklyFees} (${stats.pendingWeeklyFees})`,
+      icon: <CreditCard className="w-4 h-4" />,
+    },
     { id: 'users', label: `${t.admin.tabUsers} (${stats.pendingUsers})`, icon: <Users className="w-4 h-4" /> },
     { id: 'geography', label: t.admin.tabGeography, icon: <MapPin className="w-4 h-4" /> },
     { id: 'trips', label: t.admin.tabTripsBookings, icon: <Calendar className="w-4 h-4" /> },
@@ -451,6 +487,129 @@ export const AdminDashboard: React.FC = () => {
                 </div>
               );
             })
+          )}
+        </div>
+      )}
+
+      {/* TAB: WEEKLY DRIVER COMMISSIONS (20,000 IQD RAFIDAIN) */}
+      {tab === 'weekly_fees' && (
+        <div className="space-y-4">
+          <div className="surface-card rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">{t.admin.weeklyFeesTitle}</h2>
+              <p className="text-xs text-slate-600 mt-0.5">{t.admin.weeklyFeesSubtitle}</p>
+            </div>
+            <div className="text-xs font-mono font-bold px-3 py-1.5 rounded-xl bg-[#EFF6FF] border border-[#BFDBFE] text-[#0559B8]" dir="ltr">
+              07738235028
+            </div>
+          </div>
+
+          {sortedWeeklyFees.length === 0 ? (
+            <div className="surface-card rounded-2xl p-8 text-center text-sm text-slate-500">
+              {t.admin.emptyList}
+            </div>
+          ) : (
+            sortedWeeklyFees.map((fee) => (
+              <div
+                key={fee.id}
+                className="surface-card rounded-2xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-md font-bold ${
+                        fee.status === 'approved'
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : fee.status === 'rejected'
+                            ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200'
+                      }`}
+                    >
+                      {t.statuses[fee.status]}
+                    </span>
+                    <span className="font-mono font-semibold text-slate-700" dir="ltr">
+                      {fee.weekKey}
+                    </span>
+                    <span>·</span>
+                    <span className="font-mono font-bold text-[#0770E3] tabular-nums">
+                      {formatIqd(fee.amountIqd)}
+                    </span>
+                    <span>·</span>
+                    <span className="font-mono text-slate-500" dir="ltr">
+                      {fee.rafidainNumber}
+                    </span>
+                  </div>
+
+                  <div className="text-base font-bold text-slate-900 flex flex-wrap items-center gap-2">
+                    <span>{fee.driverName}</span>
+                    {fee.driverPhone && (
+                      <span className="text-xs font-mono font-normal text-slate-500" dir="ltr">
+                        {fee.driverPhone}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="inline-flex flex-wrap items-center gap-2 bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg px-3 py-1.5 text-xs">
+                    <span className="text-slate-600 font-semibold">
+                      {t.admin.transferSenderNameCol}:
+                    </span>
+                    <span className="font-bold text-[#05203C]">{fee.senderNameOnTransfer}</span>
+                  </div>
+
+                  {fee.adminNotes && (
+                    <div className="text-xs text-rose-700">{fee.adminNotes}</div>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
+                  {fee.status !== 'approved' && (
+                    <>
+                      <input
+                        type="text"
+                        placeholder={t.admin.adminNotesPlaceholder}
+                        value={weeklyRejectNotes[fee.id] ?? ''}
+                        onChange={(e) =>
+                          setWeeklyRejectNotes((prev) => ({ ...prev, [fee.id]: e.target.value }))
+                        }
+                        className="px-3 py-2 text-xs border border-slate-300 rounded-xl w-full sm:w-48"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await adminReviewWeeklyCommission(
+                            fee.id,
+                            fee.driverId,
+                            'rejected',
+                            firebaseUser?.uid || 'admin_2006',
+                            weeklyRejectNotes[fee.id] || ''
+                          );
+                          showToast(t.driver.savedSuccess);
+                        }}
+                        className="px-3.5 py-2 text-xs font-semibold text-rose-700 border border-rose-200 rounded-xl hover:bg-rose-50 cursor-pointer"
+                      >
+                        {t.admin.rejectWeeklyFeeBtn}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await adminReviewWeeklyCommission(
+                            fee.id,
+                            fee.driverId,
+                            'approved',
+                            firebaseUser?.uid || 'admin_2006'
+                          );
+                          showToast(t.driver.savedSuccess);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-[#0770E3] text-white rounded-xl hover:bg-[#0559B8] cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{t.admin.approveWeeklyFeeBtn}</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))
           )}
         </div>
       )}
@@ -747,7 +906,14 @@ export const AdminDashboard: React.FC = () => {
                             {b.departureDate} {b.departureTime}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-700">{seatLabels}</td>
+                        <td className="px-4 py-3 text-xs text-slate-700">
+                          {b.isFullCar && (
+                            <div className="font-bold text-[#0770E3] mb-0.5">
+                              {t.driver.fullCarBadge}
+                            </div>
+                          )}
+                          <div>{seatLabels}</div>
+                        </td>
                         <td className="px-4 py-3 text-xs">
                           {b.includeCargo ? (
                             <div className="space-y-0.5">

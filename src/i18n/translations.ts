@@ -11,6 +11,7 @@ export interface TranslationDictionary {
 
   nav: {
     searchTrips: string;
+    emptyCars: string;
     destinations: string;
     loyalty: string;
     becomeDriver: string;
@@ -47,6 +48,7 @@ export interface TranslationDictionary {
     verifiedBadgeSub: string;
     governoratesCount: string;
     catTrips: string;
+    catEmptyCars: string;
     catRoutes: string;
     catRewards: string;
     catDrivers: string;
@@ -59,10 +61,12 @@ export interface TranslationDictionary {
     specialOffersOnlyCheck: string;
     breadcrumbHome: string;
     breadcrumbSection: string;
+    breadcrumbEmptyCars: string;
   };
 
   subnav: {
     popular: string;
+    emptyCars: string;
     trips: string;
     providers: string;
     ratings: string;
@@ -163,6 +167,17 @@ export interface TranslationDictionary {
     startingFrom: string;
     noFareDataYet: string;
     noRoutesYetShort: string;
+    emptyCarsTitle: string;
+    emptyCarsSub: string;
+    emptyCarsPageTitle: string;
+    emptyCarsPageSub: string;
+    emptyCarsEmptyState: string;
+    viewAllEmptyCars: string;
+    emptyCarsCount: string;
+    emptyCarsFilterAll: string;
+    emptyCarsFilterOnlyEmpty: string;
+    emptyCarsFilter4Seats: string;
+    emptyCarsFilter6Seats: string;
   };
 
   tripCard: {
@@ -182,6 +197,13 @@ export interface TranslationDictionary {
     durationMins: string;
     ownTrip: string;
     unratedDriver: string;
+    fullCarPriceLabel: string;
+    bookFullCar: string;
+    carNotEmpty: string;
+    carNotEmptyTooltip: string;
+    emptyCarReadyBadge: string;
+    seatsCapacityBadge: string;
+    seatsUnit: string;
   };
 
   auth: {
@@ -296,6 +318,8 @@ export interface TranslationDictionary {
     seatRearRight: string;
     seatRearMiddle: string;
     seatRearLeft: string;
+    seatExtraRight: string;
+    seatExtraLeft: string;
     seatAvailable: string;
     seatSelected: string;
     seatBooked: string;
@@ -328,6 +352,11 @@ export interface TranslationDictionary {
     cargoBadge: string;
     cargoAvailableBadge: string;
     seatPriceRangeHint: string;
+    fullCarModalTitle: string;
+    fullCarFareLabel: string;
+    fullCarIncludedAllSeats: string;
+    fullCarCannotRedeemPoints: string;
+    carNotEmptyError: string;
   };
 
   statuses: {
@@ -476,6 +505,36 @@ export interface TranslationDictionary {
     editTripBtn: string;
     saveTripChangesBtn: string;
     tripUpdatedSuccess: string;
+    seatCapacityLabel: string;
+    capacity4Seats: string;
+    capacity6Seats: string;
+    fullCarPriceLabel: string;
+    fullCarPricePlaceholder: string;
+    fullCarPriceHint: string;
+    sixCabinSeatsReady: string;
+    fullCarBadge: string;
+    cabinSeatsOverview6: string;
+    weeklyFeeModalTitle: string;
+    weeklyFeeModalSubtitle: string;
+    weeklyFeeAmountLabel: string;
+    weeklyFeeWeekLabel: string;
+    rafidainNumberLabel: string;
+    copyNumberBtn: string;
+    copiedBadge: string;
+    transferNotesNoticeTitle: string;
+    transferNotesNoticeBody: string;
+    driverTransferNameLabel: string;
+    driverTransferNamePlaceholder: string;
+    submitWeeklyFeeBtn: string;
+    weeklyFeeSubmittedSuccess: string;
+    weeklyFeeBannerDueTitle: string;
+    weeklyFeeBannerDueDesc: string;
+    weeklyFeeBannerPendingTitle: string;
+    weeklyFeeBannerPendingDesc: string;
+    weeklyFeeBannerApprovedTitle: string;
+    weeklyFeeBannerRejectedTitle: string;
+    payWeeklyFeeBtn: string;
+    viewPaymentDetailsBtn: string;
   };
 
   admin: {
@@ -556,6 +615,12 @@ export interface TranslationDictionary {
     cargoCol: string;
     pendingUsersCount: string;
     emptyList: string;
+    tabWeeklyFees: string;
+    weeklyFeesTitle: string;
+    weeklyFeesSubtitle: string;
+    transferSenderNameCol: string;
+    approveWeeklyFeeBtn: string;
+    rejectWeeklyFeeBtn: string;
   };
 
   map: {
@@ -652,6 +717,10 @@ export interface TranslationDictionary {
     storageUnauthorized: string;
     invalidImageFile: string;
     cannotDeleteTripWithBookings: string;
+    carNotEmpty: string;
+    weeklyCommissionRequired: string;
+    weeklyCommissionPending: string;
+    invalidTransferName: string;
   };
 }
 
@@ -667,6 +736,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
 
     nav: {
       searchTrips: 'الرحلات',
+      emptyCars: 'سيارات فارغة',
       destinations: 'الوجهات',
       loyalty: 'نقاط المكافآت',
       becomeDriver: 'انضم كسائق',
@@ -704,6 +774,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       verifiedBadgeSub: 'استلام مريح من المنزل أو نقطة الالتقاء في الموعد المحدد',
       governoratesCount: '18',
       catTrips: 'حجز الرحلات',
+      catEmptyCars: 'سيارات فارغة',
       catRoutes: 'أبرز المسارات',
       catRewards: 'نقاط المكافآت',
       catDrivers: 'بوابة السائقين',
@@ -716,10 +787,12 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       specialOffersOnlyCheck: 'عروض الأسعار الخاصة فقط',
       breadcrumbHome: 'الرئيسية',
       breadcrumbSection: 'حجز التكسي بين المحافظات',
+      breadcrumbEmptyCars: 'سيارات فارغة',
     },
 
     subnav: {
       popular: 'أبرز المسارات',
+      emptyCars: 'سيارات فارغة',
       trips: 'الرحلات المتاحة',
       providers: 'تغطية المحافظات',
       ratings: 'التقييمات',
@@ -837,6 +910,17 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       startingFrom: 'ابتداءً من',
       noFareDataYet: 'لا توجد بيانات أسعار منشورة بعد — ستظهر متوسطات الأسعار تلقائياً فور نشر السائقين لرحلاتهم.',
       noRoutesYetShort: 'بانتظار نشر رحلات',
+      emptyCarsTitle: 'سيارات فارغة (حجز السيارة كاملة)',
+      emptyCarsSub: 'احجز السيارة كاملة بسعر خاص يحدده الكابتن عندما تكون جميع المقاعد فارغة دون أي حجز مسبق.',
+      emptyCarsPageTitle: 'قسم السيارات الفارغة — حجز السيارة كاملة',
+      emptyCarsPageSub: 'تصفح السيارات المتاحة للحجز الكامل بين المحافظات (4 أو 6 مقاعد) بالسعر المحدد من الكابتن.',
+      emptyCarsEmptyState: 'لا توجد سيارات متاحة بتسعيرة السيارة كاملة مطابقة لخيارات التصفية حالياً.',
+      viewAllEmptyCars: 'عرض كل السيارات الفارغة',
+      emptyCarsCount: 'سيارة بتسعيرة كاملة',
+      emptyCarsFilterAll: 'جميع السيارات',
+      emptyCarsFilterOnlyEmpty: 'الفارغة تماماً فقط',
+      emptyCarsFilter4Seats: '4 مقاعد',
+      emptyCarsFilter6Seats: '6 مقاعد',
     },
 
     tripCard: {
@@ -856,6 +940,13 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       durationMins: 'دقيقة تقريباً',
       ownTrip: 'رحلتك',
       unratedDriver: 'جديد',
+      fullCarPriceLabel: 'سعر السيارة كاملة',
+      bookFullCar: 'حجز السيارة كاملة',
+      carNotEmpty: 'السيارة غير فارغة',
+      carNotEmptyTooltip: 'السيارة غير فارغة — تم حجز مقعد واحد أو أكثر ولا يمكن حجز السيارة كاملة',
+      emptyCarReadyBadge: 'فارغة بالكامل',
+      seatsCapacityBadge: 'السعة',
+      seatsUnit: 'مقاعد',
     },
 
     auth: {
@@ -970,6 +1061,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       seatRearRight: 'خلفي يمين',
       seatRearMiddle: 'خلفي وسط',
       seatRearLeft: 'خلفي يسار',
+      seatExtraRight: 'إضافي يمين',
+      seatExtraLeft: 'إضافي يسار',
       seatAvailable: 'متاح',
       seatSelected: 'مختار',
       seatBooked: 'محجوز',
@@ -1002,6 +1095,11 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       cargoBadge: 'مع شحن طرد',
       cargoAvailableBadge: 'شحن طرود متاح',
       seatPriceRangeHint: 'حسب المقعد المختار',
+      fullCarModalTitle: 'حجز السيارة كاملة',
+      fullCarFareLabel: 'أجرة السيارة كاملة (محددة من الكابتن)',
+      fullCarIncludedAllSeats: 'يشمل حجز جميع المقاعد داخل المركبة بالكامل لرحلة خاصة.',
+      fullCarCannotRedeemPoints: 'استبدال النقاط متاح للمقعد الفردي فقط ولا يُطبق على حجز السيارة كاملة.',
+      carNotEmptyError: 'عذراً، هذه السيارة غير فارغة (تم حجز مقعد واحد أو أكثر للتو).',
     },
 
     statuses: {
@@ -1150,6 +1248,40 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       editTripBtn: 'تعديل الرحلة والأسعار',
       saveTripChangesBtn: 'حفظ تعديلات الرحلة',
       tripUpdatedSuccess: 'تم تحديث تفاصيل وأسعار الرحلة بنجاح.',
+      seatCapacityLabel: 'سعة المركبة في هذه الرحلة',
+      capacity4Seats: '4 مقاعد (صالون قياسي)',
+      capacity6Seats: '6 مقاعد (4 أساسية + مقعدان إضافيان)',
+      fullCarPriceLabel: 'سعر حجز السيارة كاملة (د.ع)',
+      fullCarPricePlaceholder: 'مثال: 120000 (اتركه فارغاً أو 0 لإلغاء الحجز الكامل)',
+      fullCarPriceHint: 'يظهر في قسم «سيارات فارغة» ويُفعّل زر الحجز الكامل طالما لم يُحجز أي مقعد.',
+      sixCabinSeatsReady: 'سيتم تهيئة جميع المقاعد الستة (6/6 متاحة) بما فيها المقعدان الإضافيان في المخطط ثلاثي الأبعاد.',
+      fullCarBadge: 'حجز سيارة كاملة',
+      cabinSeatsOverview6: 'حالة المقاعد الستة',
+      weeklyFeeModalTitle: 'سداد عمولة المنصة الأسبوعية (20,000 د.ع)',
+      weeklyFeeModalSubtitle:
+        'لقد أخذت أول رحلة لك هذا الأسبوع. لإتاحة نشر رحلات إضافية، يرجى تحويل 20,000 د.ع عبر مصرف الرافدين.',
+      weeklyFeeAmountLabel: 'المبلغ المطلوب لهذا الأسبوع',
+      weeklyFeeWeekLabel: 'الأسبوع',
+      rafidainNumberLabel: 'رقم الرافدين للتحويل',
+      copyNumberBtn: 'نسخ الرقم',
+      copiedBadge: 'تم النسخ',
+      transferNotesNoticeTitle: 'تنبيه مهم جداً — ملاحظات التحويل',
+      transferNotesNoticeBody:
+        'يجب كتابة اسمك في «ملاحظات التحويل» عند إرسال مبلغ 20,000 د.ع إلى رقم الرافدين أعلاه، حتى يتمكن المشرف (2006) من مطابقة الحوالة وتفعيل حسابك للأسبوع.',
+      driverTransferNameLabel: 'اسم السائق (كما كتبته في ملاحظات التحويل)',
+      driverTransferNamePlaceholder: 'اكتب اسمك الكامل المطابق لملاحظات التحويل',
+      submitWeeklyFeeBtn: 'إرسال تأكيد التحويل للموافقة',
+      weeklyFeeSubmittedSuccess:
+        'تم إرسال بيانات التحويل! بانتظار مطابقة وموافقة المشرف (2006) لتفعيل حسابك للأسبوع.',
+      weeklyFeeBannerDueTitle: 'مطلوب سداد عمولة الأسبوع (20,000 د.ع) عبر الرافدين',
+      weeklyFeeBannerDueDesc:
+        'بدأت أول رحلة لك هذا الأسبوع. حوّل 20,000 د.ع إلى رقم الرافدين 07738235028 واكتب اسمك في ملاحظات التحويل لفتح الرحلات الإضافية.',
+      weeklyFeeBannerPendingTitle: 'حوالة عمولة الأسبوع (20,000 د.ع) بانتظار موافقة الإدارة',
+      weeklyFeeBannerPendingDesc: 'تم إرسال التأكيد باسم:',
+      weeklyFeeBannerApprovedTitle: 'حسابك مفعّل لهذا الأسبوع (تم اعتماد 20,000 د.ع)',
+      weeklyFeeBannerRejectedTitle: 'تم رفض تأكيد عمولة الأسبوع — يرجى إعادة الإرسال',
+      payWeeklyFeeBtn: 'دفع / تأكيد 20,000 د.ع',
+      viewPaymentDetailsBtn: 'عرض تفاصيل الرافدين',
     },
 
     admin: {
@@ -1230,6 +1362,13 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       cargoCol: 'البضائع / الطرود',
       pendingUsersCount: 'مسافرون ومستخدمون بانتظار الاعتماد',
       emptyList: 'لا توجد سجلات حية حالياً.',
+      tabWeeklyFees: 'عمولات الأسبوع (20,000)',
+      weeklyFeesTitle: 'مراجعة حوالات الرافدين الأسبوعية (20,000 د.ع)',
+      weeklyFeesSubtitle:
+        'طابق اسم السائق المكتوب في ملاحظات التحويل لحوالات رقم الرافدين 07738235028 وفعّل حسابه للأسبوع.',
+      transferSenderNameCol: 'الاسم في ملاحظات التحويل',
+      approveWeeklyFeeBtn: 'مطابقة وتفعيل الأسبوع',
+      rejectWeeklyFeeBtn: 'رفض الحوالة',
     },
 
     map: {
@@ -1339,6 +1478,12 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       storageUnauthorized: 'تعذر رفع الصور إلى Firebase Storage. تحقق من أذونات قواعد التخزين.',
       invalidImageFile: 'يرجى اختيار ملف صورة صالح (JPG أو PNG).',
       cannotDeleteTripWithBookings: 'لا يمكن حذف رحلة تحتوي على حجوزات مؤكدة. يمكنك إلغاء الحجوزات أولاً.',
+      carNotEmpty: 'عذراً، هذه السيارة غير فارغة — تم حجز مقعد واحد أو أكثر.',
+      weeklyCommissionRequired:
+        'يجب تحويل عمولة الأسبوع (20,000 د.ع) عبر الرافدين (07738235028) واعتمادها من الإدارة قبل إضافة رحلة ثانية هذا الأسبوع.',
+      weeklyCommissionPending:
+        'طلب تأكيد عمولة الأسبوع قيد المراجعة الإدارية حالياً. ستتمكن من نشر رحلات جديدة فور الموافقة.',
+      invalidTransferName: 'يرجى كتابة اسمك الكامل كما ورد في ملاحظات التحويل.',
     },
   },
 
@@ -1353,6 +1498,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
 
     nav: {
       searchTrips: 'گەشتەکان',
+      emptyCars: 'ئۆتۆمبێلی بەتاڵ',
       destinations: 'ئاراستەکان',
       loyalty: 'خاڵەکانی دڵسۆزی',
       becomeDriver: 'ببە بە شۆفێر',
@@ -1390,6 +1536,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       verifiedBadgeSub: 'وەرگرتن لە ماڵەوە یان شوێنی ڕێککەوتن لە کاتی دیاریکراودا',
       governoratesCount: '18',
       catTrips: 'گرتنی گەشت',
+      catEmptyCars: 'ئۆتۆمبێلی بەتاڵ',
       catRoutes: 'هێڵە سەرەکییەکان',
       catRewards: 'خاڵەکانی پاداشت',
       catDrivers: 'پۆرتاڵی شۆفێران',
@@ -1402,10 +1549,12 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       specialOffersOnlyCheck: 'تەنها ئۆفەرە تایبەتەکان',
       breadcrumbHome: 'سەرەکی',
       breadcrumbSection: 'گرتنی تەکسی نێوان پارێزگاکان',
+      breadcrumbEmptyCars: 'ئۆتۆمبێلی بەتاڵ',
     },
 
     subnav: {
       popular: 'هێڵە سەرەکییەکان',
+      emptyCars: 'ئۆتۆمبێلی بەتاڵ',
       trips: 'گەشتە بەردەستەکان',
       providers: 'ڕووماڵی پارێزگاکان',
       ratings: 'هەڵسەنگاندنەکان',
@@ -1523,6 +1672,17 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       startingFrom: 'دەستپێکردن لە',
       noFareDataYet: 'هێشتا داتای نرخ نییە — تێکڕای نرخەکان بە خۆکار دەردەکەون کاتێک شۆفێران گەشت بڵاودەکەنەوە.',
       noRoutesYetShort: 'چاوەڕوانی گەشتە',
+      emptyCarsTitle: 'ئۆتۆمبێلی بەتاڵ (حجزی تەواوی ئۆتۆمبێل)',
+      emptyCarsSub: 'تەواوی ئۆتۆمبێل بگرە بە نرخی دیاریکراوی کاپتن کاتێک هیچ کورسییەک حجز نەکراوە.',
+      emptyCarsPageTitle: 'بەشی ئۆتۆمبێلە بەتاڵەکان — حجزی تەواوی ئۆتۆمبێل',
+      emptyCarsPageSub: 'ئەو ئۆتۆمبێلانە ببینە کە بۆ حجزی تەواو بەردەستن (٤ یان ٦ کورسی) بە نرخی کاپتن.',
+      emptyCarsEmptyState: 'هیچ ئۆتۆمبێلێک بە نرخی حجزی تەواو نەدۆزرایەوە بۆ فلتەرەکەت.',
+      viewAllEmptyCars: 'پیشاندانی هەموو ئۆتۆمبێلە بەتاڵەکان',
+      emptyCarsCount: 'ئۆتۆمبێل بە نرخی تەواو',
+      emptyCarsFilterAll: 'هەموو ئۆتۆمبێلەکان',
+      emptyCarsFilterOnlyEmpty: 'تەنها تەواو بەتاڵەکان',
+      emptyCarsFilter4Seats: '٤ کورسی',
+      emptyCarsFilter6Seats: '٦ کورسی',
     },
 
     tripCard: {
@@ -1542,6 +1702,13 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       durationMins: 'خولەک',
       ownTrip: 'گەشتی خۆتە',
       unratedDriver: 'نوێ',
+      fullCarPriceLabel: 'نرخی تەواوی ئۆتۆمبێل',
+      bookFullCar: 'حجزی تەواوی ئۆتۆمبێل',
+      carNotEmpty: 'ئۆتۆمبێلەکە بەتاڵ نییە',
+      carNotEmptyTooltip: 'ئۆتۆمبێلەکە بەتاڵ نییە — لانیکەم یەک کورسی حجزکراوە',
+      emptyCarReadyBadge: 'تەواو بەتاڵە',
+      seatsCapacityBadge: 'فراوانی',
+      seatsUnit: 'کورسی',
     },
 
     auth: {
@@ -1656,6 +1823,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       seatRearRight: 'دواوەی ڕاست',
       seatRearMiddle: 'دواوەی ناوەڕاست',
       seatRearLeft: 'دواوەی چەپ',
+      seatExtraRight: 'زیادەی ڕاست',
+      seatExtraLeft: 'زیادەی چەپ',
       seatAvailable: 'بەردەستە',
       seatSelected: 'هەڵبژێردراو',
       seatBooked: 'حجزکراوە',
@@ -1688,6 +1857,11 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       cargoBadge: 'لەگەڵ پاکێج',
       cargoAvailableBadge: 'ناردنی پاکێج بەردەستە',
       seatPriceRangeHint: 'بەپێی کورسی هەڵبژێردراو',
+      fullCarModalTitle: 'حجزی تەواوی ئۆتۆمبێل',
+      fullCarFareLabel: 'نرخی تەواوی ئۆتۆمبێل (نرخی کاپتن)',
+      fullCarIncludedAllSeats: 'هەموو کورسییەکانی ناو ئۆتۆمبێلەکە بۆ گەشتی تایبەت دەگیرێن.',
+      fullCarCannotRedeemPoints: 'گۆڕینەوەی خاڵ تەنها بۆ یەک کورسی دەبێت و بۆ حجزی تەواو بەکارنایەت.',
+      carNotEmptyError: 'ببورە، ئەم ئۆتۆمبێلە بەتاڵ نییە (کورسییەک یان زیاتر حجزکراوە).',
     },
 
     statuses: {
@@ -1836,6 +2010,40 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       editTripBtn: 'دەستکاری گەشت و نرخ',
       saveTripChangesBtn: 'پاشەکەوتکردنی گۆڕانکارییەکان',
       tripUpdatedSuccess: 'زانیاری و نرخەکانی گەشت بە سەرکەوتوویی نوێکرانەوە.',
+      seatCapacityLabel: 'فراوانی ئۆتۆمبێل بۆ ئەم گەشتە',
+      capacity4Seats: '٤ کورسی (ئۆتۆمبێلی ئاسایی)',
+      capacity6Seats: '٦ کورسی (٤ سەرەکی + ٢ کورسی زیادە)',
+      fullCarPriceLabel: 'نرخی حجزی تەواوی ئۆتۆمبێل (د.ع)',
+      fullCarPricePlaceholder: 'نموونە: 120000 (بەتاڵی بهێڵە یان 0 بۆ ناچالاککردن)',
+      fullCarPriceHint: 'لە بەشی «ئۆتۆمبێلی بەتاڵ» دەردەکەوێت تا کاتێک هیچ کورسییەک حجز نەکرابێت.',
+      sixCabinSeatsReady: 'هەر ٦ کورسییەکە (6/6 بەتاڵ) ئامادە دەکرێن لەوانە ٢ کورسی زیادەکەی نەخشەی سێڕەهەندی.',
+      fullCarBadge: 'حجزی تەواوی ئۆتۆمبێل',
+      cabinSeatsOverview6: 'دۆخی ٦ کورسییەکە',
+      weeklyFeeModalTitle: 'دانی کۆمیسیۆنی هەفتانە (20,000 د.ع)',
+      weeklyFeeModalSubtitle:
+        'تۆ یەکەم گەشتی ئەم هەفتەیەت ئەنجامدا. بۆ بڵاوکردنەوەی گەشتی تر، تکایە 20,000 د.ع بنێرە لە ڕێگەی ڕافیدەین.',
+      weeklyFeeAmountLabel: 'بڕی پارەی پێویست بۆ ئەم هەفتەیە',
+      weeklyFeeWeekLabel: 'هەفتە',
+      rafidainNumberLabel: 'ژمارەی ڕافیدەین بۆ ناردن',
+      copyNumberBtn: 'کۆپیکردنی ژمارە',
+      copiedBadge: 'کۆپیکرا',
+      transferNotesNoticeTitle: 'ئاگاداری گرنگ — تێبینی حەواڵە',
+      transferNotesNoticeBody:
+        'پێویستە ناوی تەواوت لە «تێبینی حەواڵە» بنووسیت لە کاتی ناردنی 20,000 د.ع بۆ ژمارەی ڕافیدەین، بۆ ئەوەی کارگێڕی (2006) حەواڵەکە بناسێتەوە و هەژمارەکەت بۆ هەفتەکە پەسەند بکات.',
+      driverTransferNameLabel: 'ناوی شۆفێر (وەک لە تێبینی حەواڵە نووسراوە)',
+      driverTransferNamePlaceholder: 'ناوی تەواوت وەک تێبینی حەواڵە بنووسە',
+      submitWeeklyFeeBtn: 'ناردنی دڵنیایی حەواڵە بۆ پەسەندکردن',
+      weeklyFeeSubmittedSuccess:
+        'زانیاری حەواڵە نێردرا! چاوەڕوانی پشکنین و پەسەندکردنی کارگێڕی (2006) بکە.',
+      weeklyFeeBannerDueTitle: 'کۆمیسیۆنی هەفتانە (20,000 د.ع) پێویستە بدرێت',
+      weeklyFeeBannerDueDesc:
+        'یەکەم گەشتی هەفتەت دەستپێکرد. 20,000 د.ع بنێرە بۆ ڕافیدەین 07738235028 بۆ بڵاوکردنەوەی گەشتی نوێ.',
+      weeklyFeeBannerPendingTitle: 'حەواڵەی هەفتانە (20,000 د.ع) چاوەڕوانی پەسەندکردنە',
+      weeklyFeeBannerPendingDesc: 'نێردراوە بە ناوی:',
+      weeklyFeeBannerApprovedTitle: 'هەژمارەکەت بۆ ئەم هەفتەیە چالاکە (20,000 د.ع پەسەندکراوە)',
+      weeklyFeeBannerRejectedTitle: 'داواکاری هەفتانە ڕەتکرایەوە — تکایە دووبارە بینێرە',
+      payWeeklyFeeBtn: 'دانی / دڵنیاکردنەوەی 20,000 د.ع',
+      viewPaymentDetailsBtn: 'بینینی زانیاری ڕافیدەین',
     },
 
     admin: {
@@ -1916,6 +2124,13 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       cargoCol: 'کاڵا / پاکێج',
       pendingUsersCount: 'بەکارهێنەرانی چاوەڕوانی پەسەندکردن',
       emptyList: 'هیچ تۆمارێکی زیندوو لە ئێستادا نییە.',
+      tabWeeklyFees: 'کۆمیسیۆنی هەفتانە (20,000)',
+      weeklyFeesTitle: 'پێداچوونەوەی حەواڵەی هەفتانەی ڕافیدەین (20,000 د.ع)',
+      weeklyFeesSubtitle:
+        'ناوی ناو تێبینی حەواڵەکە لەگەڵ حەواڵەکانی 07738235028 بگونجێنە و هەفتەکە پەسەند بکە.',
+      transferSenderNameCol: 'ناو لە تێبینی حەواڵە',
+      approveWeeklyFeeBtn: 'پەسەندکردنی هەفتە',
+      rejectWeeklyFeeBtn: 'ڕەتکردنەوە',
     },
 
     map: {
@@ -2025,6 +2240,12 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       storageUnauthorized: 'بارکردنی وێنەکان سەرکەوتوو نەبوو بەهۆی دەسەڵاتی Firebase Storage.',
       invalidImageFile: 'تکایە فایلێکی وێنەی دروست هەڵبژێرە (JPG یان PNG).',
       cannotDeleteTripWithBookings: 'ناتوانرێت گەشتێک بسڕدرێتەوە کە حجزی پەسەندکراوی تێدایە.',
+      carNotEmpty: 'ببورە، ئەم ئۆتۆمبێلە بەتاڵ نییە — یەک کورسی یان زیاتر حجزکراوە.',
+      weeklyCommissionRequired:
+        'دەبێت کۆمیسیۆنی هەفتانە (20,000 د.ع) بنێریت بۆ 07738235028 و پەسەند بکرێت پێش گەشتی دووەم.',
+      weeklyCommissionPending:
+        'حەواڵەی کۆمیسیۆنی هەفتانە لەژێر پشکنیندایە. دوای پەسەندکردن دەتوانیت گەشتی نوێ بڵاوبکەیتەوە.',
+      invalidTransferName: 'تکایە ناوی تەواوت وەک تێبینی حەواڵە بنووسە.',
     },
   },
 
@@ -2039,6 +2260,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
 
     nav: {
       searchTrips: 'Trips',
+      emptyCars: 'Empty Cars',
       destinations: 'Destinations',
       loyalty: 'Loyalty',
       becomeDriver: 'Drive with Us',
@@ -2076,6 +2298,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       verifiedBadgeSub: 'On-time pickup from your home or agreed meeting point',
       governoratesCount: '18',
       catTrips: 'Intercity Trips',
+      catEmptyCars: 'Empty Cars',
       catRoutes: 'Popular Routes',
       catRewards: 'Loyalty Rewards',
       catDrivers: 'Drive With Us',
@@ -2088,10 +2311,12 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       specialOffersOnlyCheck: 'Special fare offers only',
       breadcrumbHome: 'Home',
       breadcrumbSection: 'Intercity Taxi Hire',
+      breadcrumbEmptyCars: 'Empty Cars',
     },
 
     subnav: {
       popular: 'Popular routes',
+      emptyCars: 'Empty cars',
       trips: 'Available trips',
       providers: 'Pickup coverage',
       ratings: 'Ratings & reviews',
@@ -2209,6 +2434,17 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       startingFrom: 'Starting from',
       noFareDataYet: 'No live route pricing yet — averages appear automatically once drivers publish trips.',
       noRoutesYetShort: 'Awaiting trips',
+      emptyCarsTitle: 'Empty Cars (Book Full Vehicle)',
+      emptyCarsSub: 'Reserve an entire empty vehicle at the captain’s full-car rate when zero seats are booked.',
+      emptyCarsPageTitle: 'Empty Cars — Full-Vehicle Booking',
+      emptyCarsPageSub: 'Browse vehicles priced by captains for private full-car booking across 4-seat and 6-seat capacities.',
+      emptyCarsEmptyState: 'No trips with captain full-car pricing match your current filters.',
+      viewAllEmptyCars: 'View All Empty Cars',
+      emptyCarsCount: 'full-car trips',
+      emptyCarsFilterAll: 'All Vehicles',
+      emptyCarsFilterOnlyEmpty: 'Completely Empty Only',
+      emptyCarsFilter4Seats: '4 Seats',
+      emptyCarsFilter6Seats: '6 Seats',
     },
 
     tripCard: {
@@ -2228,6 +2464,13 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       durationMins: 'min est.',
       ownTrip: 'Your trip',
       unratedDriver: 'New',
+      fullCarPriceLabel: 'Full-car rate',
+      bookFullCar: 'Book Full Car',
+      carNotEmpty: 'Car Not Empty',
+      carNotEmptyTooltip: 'Car is not completely empty — one or more seats are already reserved',
+      emptyCarReadyBadge: 'Completely Empty',
+      seatsCapacityBadge: 'Capacity',
+      seatsUnit: 'seats',
     },
 
     auth: {
@@ -2342,6 +2585,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       seatRearRight: 'Rear Right',
       seatRearMiddle: 'Rear Middle',
       seatRearLeft: 'Rear Left',
+      seatExtraRight: 'Extra Right',
+      seatExtraLeft: 'Extra Left',
       seatAvailable: 'Available',
       seatSelected: 'Selected',
       seatBooked: 'Booked',
@@ -2374,6 +2619,11 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       cargoBadge: 'With Cargo',
       cargoAvailableBadge: 'Cargo Accepted',
       seatPriceRangeHint: 'Varies by seat',
+      fullCarModalTitle: 'Book Full Car',
+      fullCarFareLabel: 'Full-car fare (set by captain)',
+      fullCarIncludedAllSeats: 'Reserves every seat in the cabin exclusively for your private journey.',
+      fullCarCannotRedeemPoints: 'Loyalty point redemptions apply to single-seat bookings only.',
+      carNotEmptyError: 'Sorry, this car is no longer completely empty.',
     },
 
     statuses: {
@@ -2522,6 +2772,40 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       editTripBtn: 'Edit Trip & Prices',
       saveTripChangesBtn: 'Save Trip Changes',
       tripUpdatedSuccess: 'Trip details and pricing updated successfully.',
+      seatCapacityLabel: 'Vehicle Capacity for This Trip',
+      capacity4Seats: '4 Seats (Standard Sedan)',
+      capacity6Seats: '6 Seats (4 Core + 2 Extra Cabin Seats)',
+      fullCarPriceLabel: 'Full-Car Booking Price (IQD)',
+      fullCarPricePlaceholder: 'e.g. 120000 (leave blank or 0 to disable full-car)',
+      fullCarPriceHint: 'Listed in Empty Cars with Book Full Car active while zero seats are booked.',
+      sixCabinSeatsReady: 'All 6 cabin seats (6/6 open), including 2 extra seats, will appear in the 3D cabin selector.',
+      fullCarBadge: 'Full-Car Booking',
+      cabinSeatsOverview6: '6-Seat Cabin Status',
+      weeklyFeeModalTitle: 'Weekly Platform Commission (20,000 IQD)',
+      weeklyFeeModalSubtitle:
+        'You started your first trip this week. Transfer 20,000 IQD via Rafidain to unlock additional trips this week.',
+      weeklyFeeAmountLabel: 'Weekly Amount Due',
+      weeklyFeeWeekLabel: 'Week',
+      rafidainNumberLabel: 'Rafidain Transfer Number',
+      copyNumberBtn: 'Copy Number',
+      copiedBadge: 'Copied',
+      transferNotesNoticeTitle: 'Important — Transfer Notes Requirement',
+      transferNotesNoticeBody:
+        'You must write your full name in the transfer notes (ملاحظات التحويل) when sending 20,000 IQD to the Rafidain number above so the admin (2006) can match your transfer and approve your week.',
+      driverTransferNameLabel: 'Driver Name (written in transfer notes)',
+      driverTransferNamePlaceholder: 'Enter your name exactly as written in transfer notes',
+      submitWeeklyFeeBtn: 'Submit Transfer for Admin Approval',
+      weeklyFeeSubmittedSuccess:
+        'Transfer submitted! Waiting for admin (2006) verification to unlock this week.',
+      weeklyFeeBannerDueTitle: 'Weekly 20,000 IQD Commission Required (Rafidain)',
+      weeklyFeeBannerDueDesc:
+        'First trip of the week recorded. Transfer 20,000 IQD to Rafidain 07738235028 with your name in the transfer notes to publish more trips.',
+      weeklyFeeBannerPendingTitle: 'Weekly 20,000 IQD Transfer Pending Admin Approval',
+      weeklyFeeBannerPendingDesc: 'Submitted under transfer notes name:',
+      weeklyFeeBannerApprovedTitle: 'Account Approved for This Week (20,000 IQD Verified)',
+      weeklyFeeBannerRejectedTitle: 'Weekly Commission Transfer Rejected — Please Re-submit',
+      payWeeklyFeeBtn: 'Pay / Submit 20,000 IQD',
+      viewPaymentDetailsBtn: 'View Rafidain Details',
     },
 
     admin: {
@@ -2602,6 +2886,13 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       cargoCol: 'Cargo / Parcel',
       pendingUsersCount: 'Users Pending Approval',
       emptyList: 'No live records yet.',
+      tabWeeklyFees: 'Weekly Fees (20,000)',
+      weeklyFeesTitle: 'Weekly Driver 20,000 IQD Commission Reviews',
+      weeklyFeesSubtitle:
+        'Match the driver name written in transfer notes for 07738235028 Rafidain transfers and approve their week.',
+      transferSenderNameCol: 'Name in Transfer Notes',
+      approveWeeklyFeeBtn: 'Match & Approve Week',
+      rejectWeeklyFeeBtn: 'Reject Transfer',
     },
 
     map: {
@@ -2711,6 +3002,12 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       storageUnauthorized: 'Unable to upload verification photos due to Firebase Storage permissions.',
       invalidImageFile: 'Please choose a valid image file (JPG or PNG).',
       cannotDeleteTripWithBookings: 'Cannot remove a trip with confirmed bookings. Cancel bookings first.',
+      carNotEmpty: 'This car is no longer completely empty — at least one seat is already reserved.',
+      weeklyCommissionRequired:
+        'Please pay the weekly 20,000 IQD commission to Rafidain (07738235028) and wait for admin approval before publishing more trips this week.',
+      weeklyCommissionPending:
+        'Your weekly 20,000 IQD transfer is pending admin approval. Additional trips unlock once verified.',
+      invalidTransferName: 'Please enter your full name matching the transfer notes.',
     },
   },
 };

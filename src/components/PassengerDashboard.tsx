@@ -53,9 +53,13 @@ type PassengerTab = 'search' | 'bookings' | 'loyalty' | 'referrals' | 'notificat
 
 interface PassengerDashboardProps {
   onSelectTripForBooking: (trip: Trip) => void;
+  onBookFullCar?: (trip: Trip) => void;
 }
 
-export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelectTripForBooking }) => {
+export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
+  onSelectTripForBooking,
+  onBookFullCar,
+}) => {
   const { lang, setLang, getLocalizedName, formatIqd, t } = useI18n();
   const {
     firebaseUser,
@@ -208,6 +212,8 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
     rear_right: t.booking.seatRearRight,
     rear_middle: t.booking.seatRearMiddle,
     rear_left: t.booking.seatRearLeft,
+    extra_right: t.booking.seatExtraRight,
+    extra_left: t.booking.seatExtraLeft,
   };
 
   const handleCopyShare = async (booking: Booking) => {
@@ -479,6 +485,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
                         <p className="text-xs text-slate-600 mt-0.5">
                           {bk.driverName} {bk.driverPhone ? `(${bk.driverPhone})` : ''} · {bk.seatsCount}{' '}
                           {t.hero.seatsLabel}
+                          {bk.isFullCar ? ` · ${t.driver.fullCarBadge}` : ''}
                           {bk.selectedSeats && bk.selectedSeats.length > 0
                             ? ` (${bk.selectedSeats.map((s) => seatLabelMap[s]).join('، ')})`
                             : ''}
@@ -665,6 +672,17 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
                     }
                     onSelectTripForBooking(trip);
                   }}
+                  onBookFullCar={
+                    onBookFullCar
+                      ? (trip) => {
+                          if (!isApprovedMember) {
+                            notify('err', t.errors.unapprovedUser);
+                            return;
+                          }
+                          onBookFullCar(trip);
+                        }
+                      : undefined
+                  }
                   onSeatAlert={async (trip) => {
                     if (!isApprovedMember) {
                       notify('err', t.errors.unapprovedUser);

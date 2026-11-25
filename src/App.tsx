@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Lock, X } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { I18nProvider, useI18n } from './i18n/I18nContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar, type AppView } from './components/Navbar';
 import { HomePage } from './components/HomePage';
+import { EmptyCarsSection } from './components/EmptyCarsSection';
 import { PassengerDashboard } from './components/PassengerDashboard';
 import { DriverDashboard } from './components/DriverDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -12,13 +13,17 @@ import { StaticPages } from './components/StaticPages';
 import { AuthOnboardingModal } from './components/AuthOnboardingModal';
 import { BookingModal } from './components/BookingModal';
 import { AnimatedModalShell, PageTransition } from './components/motion/KineticPrimitives';
+import { parseRoute, pathForView, pushRoute } from './lib/router';
 import type { Trip, UserRole } from './types/domain';
 
 const AppShell: React.FC = () => {
   const { t } = useI18n();
-  const { userProfile, isAdmin, unlockAdminWithCode, logout } = useAuth();
+  const { firebaseUser, userProfile, isAdmin, unlockAdminWithCode, logout, trips, governorates } =
+    useAuth();
 
-  const [view, setView] = useState<AppView>('home');
+  const initialRoute = parseRoute(typeof window !== 'undefined' ? window.location.pathname : '/');
+
+  const [view, setView] = useState<AppView>(initialRoute.view);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialRole, setAuthInitialRole] = useState<UserRole>('passenger');
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
@@ -27,24 +32,151 @@ const AppShell: React.FC = () => {
   const [adminCodeError, setAdminCodeError] = useState('');
   const [adminCodeBusy, setAdminCodeBusy] = useState(false);
   const [bookingTrip, setBookingTrip] = useState<Trip | null>(null);
+  const [bookingMode, setBookingMode] = useState<'seats' | 'full_car'>('seats');
+  const [pendingRouteTrip, setPendingRouteTrip] = useState<{
+    tripId: string;
+    mode: 'seats' | 'full_car';
+  } | null>(
+    initialRoute.tripId
+      ? { tripId: initialRoute.tripId, mode: initialRoute.modalMode || 'seats' }
+      : null
+  );
   const [bookingToast, setBookingToast] = useState('');
-  const [bookingToastDropOff, setBookingToastDropOff] = useState<{ lat: number; lng: number } | null>(null);
+  const [bookingToastDropOff, setBookingToastDropOff] = useState<{ lat: number; lng: number } | null>(
+    null
+  );
 
-  const handleNavigate = (nextView: AppView, sectionId?: string) => {
-    setView(nextView);
-    if (nextView === 'home' && sectionId) {
+  const showToastMessage = useCallback((msg: string) => {
+    setBookingToastDropOff(null);
+    setBookingToast(msg);
+    setTimeout(() => setBookingToast(''), 5500);
+  }, []);
+
+  const handleNavigate = useCallback(
+    (nextView: AppView, sectionId?: string) => {
+      if (nextView === 'admin' && !isAdmin) {
+        pushRoute('/admin');
+        setAdminCodeError('');
+        setAdminCodeInput('');
+        setAdminCodeModalOpen(true);
+        return;
+      }
+      setView(nextView);
+      pushRoute(pathForView(nextView, sectionId));
+      if (nextView === 'home' && sectionId) {
+        setTimeout(() => {
+          document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
+        }, 90);
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    },
+    [isAdmin]
+  );
+
+  // Initial deep-link section scroll or admin prompt on first mount
+  useEffect(() => {
+    if (initialRoute.view === 'home' && initialRoute.sectionId) {
+      const targetId = initialRoute.sectionId;
       setTimeout(() => {
-        document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
-      }, 90);
-    } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+        document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth' });
+      }, 150);
+    } else if (initialRoute.view === 'admin' && !isAdmin) {
+      setAdminCodeError('');
+      setAdminCodeInput('');
+      setAdminCodeModalOpen(true);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync browser Back/Forward history navigation
+  useEffect(() => {
+    const onPopState = () => {
+      const parsed = parseRoute(window.location.pathname);
+      if (parsed.view === 'admin' && !isAdmin) {
+        setView('home');
+        setAdminCodeError('');
+        setAdminCodeInput('');
+        setAdminCodeModalOpen(true);
+      } else {
+        setView(parsed.view);
+      }
+      if (parsed.tripId) {
+        setPendingRouteTrip({ tripId: parsed.tripId, mode: parsed.modalMode || 'seats' });
+      } else {
+        setPendingRouteTrip(null);
+        setBookingTrip(null);
+      }
+      if (parsed.view === 'home' && parsed.sectionId) {
+        setTimeout(() => {
+          document.getElementById(parsed.sectionId!)?.scrollIntoView({ behavior: 'smooth' });
+        }, 90);
+      } else if (!parsed.tripId) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [isAdmin]);
+
+  // Resolve deep-linked trip routes (/trips/:id and /book-full-car/:id)
+  useEffect(() => {
+    if (!pendingRouteTrip || trips.length === 0) return;
+    const match = trips.find((tr) => tr.id === pendingRouteTrip.tripId);
+    if (!match) {
+      setPendingRouteTrip(null);
+      return;
+    }
+    if (!firebaseUser) {
+      setAuthInitialRole('passenger');
+      setAuthInitialMode('login');
+      setAuthModalOpen(true);
+      return;
+    }
+    if (userProfile) {
+      if (userProfile.verificationStatus === 'approved' && userProfile.accountStatus === 'active') {
+        setBookingMode(pendingRouteTrip.mode);
+        setBookingTrip(match);
+        setPendingRouteTrip(null);
+      } else {
+        showToastMessage(
+          `${t.errors.unapprovedUser}${userProfile.rejectionReason ? ` (${userProfile.rejectionReason})` : ''}`
+        );
+        setPendingRouteTrip(null);
+      }
+    }
+  }, [pendingRouteTrip, trips, firebaseUser, userProfile, showToastMessage, t.errors.unapprovedUser]);
 
   const handleOpenAuthWithRole = (role: 'passenger' | 'driver', mode?: 'login' | 'register') => {
     setAuthInitialRole(role);
     setAuthInitialMode(mode ?? (role === 'driver' ? 'register' : 'login'));
     setAuthModalOpen(true);
+  };
+
+  const openBookingFlow = (trip: Trip, mode: 'seats' | 'full_car') => {
+    if (!firebaseUser) {
+      setPendingRouteTrip({ tripId: trip.id, mode });
+      handleOpenAuthWithRole('passenger', 'login');
+      return;
+    }
+    if (
+      userProfile &&
+      (userProfile.verificationStatus !== 'approved' || userProfile.accountStatus !== 'active')
+    ) {
+      showToastMessage(
+        `${t.errors.unapprovedUser}${userProfile.rejectionReason ? ` (${userProfile.rejectionReason})` : ''}`
+      );
+      return;
+    }
+    setBookingMode(mode);
+    setBookingTrip(trip);
+    pushRoute(mode === 'full_car' ? `/book-full-car/${trip.id}` : `/trips/${trip.id}`);
+  };
+
+  const closeBookingFlow = () => {
+    setBookingTrip(null);
+    setPendingRouteTrip(null);
+    pushRoute(pathForView(view));
   };
 
   // Enforce suspended/blocked account gate
@@ -94,7 +226,7 @@ const AppShell: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setBookingToast('');
-                    setView('passenger');
+                    handleNavigate('passenger');
                   }}
                   className="underline text-xs font-semibold cursor-pointer shrink-0"
                 >
@@ -110,9 +242,10 @@ const AppShell: React.FC = () => {
         <PageTransition viewKey={view}>
           {view === 'home' && (
             <HomePage
-              onSelectTripForBooking={(trip) => setBookingTrip(trip)}
+              onSelectTripForBooking={(trip) => openBookingFlow(trip, 'seats')}
+              onBookFullCar={(trip) => openBookingFlow(trip, 'full_car')}
               onOpenAuthWithRole={(r) => handleOpenAuthWithRole(r)}
-              onNavigate={(v) => handleNavigate(v)}
+              onNavigate={handleNavigate}
               onOpenAdminCode={() => {
                 setAdminCodeError('');
                 setAdminCodeInput('');
@@ -121,8 +254,22 @@ const AppShell: React.FC = () => {
             />
           )}
 
+          {view === 'empty-cars' && (
+            <EmptyCarsSection
+              mode="page"
+              trips={trips}
+              governorates={governorates}
+              onBookFullCar={(trip) => openBookingFlow(trip, 'full_car')}
+              onBookSeats={(trip) => openBookingFlow(trip, 'seats')}
+              onNavigate={handleNavigate}
+            />
+          )}
+
           {view === 'passenger' && (
-            <PassengerDashboard onSelectTripForBooking={(trip) => setBookingTrip(trip)} />
+            <PassengerDashboard
+              onSelectTripForBooking={(trip) => openBookingFlow(trip, 'seats')}
+              onBookFullCar={(trip) => openBookingFlow(trip, 'full_car')}
+            />
           )}
 
           {view === 'driver' && <DriverDashboard />}
@@ -145,15 +292,17 @@ const AppShell: React.FC = () => {
         initialMode={authInitialMode}
         onClose={() => setAuthModalOpen(false)}
         onCompleted={(role) => {
-          if (role === 'driver') setView('driver');
-          else if (role === 'admin') setView('admin');
-          else setView('passenger');
+          if (pendingRouteTrip && role === 'passenger') return;
+          if (role === 'driver') handleNavigate('driver');
+          else if (role === 'admin') handleNavigate('admin');
+          else handleNavigate('passenger');
         }}
       />
 
       <BookingModal
         trip={bookingTrip}
-        onClose={() => setBookingTrip(null)}
+        mode={bookingMode}
+        onClose={closeBookingFlow}
         onSuccess={(coords) => {
           setBookingToastDropOff(coords || null);
           setBookingToast(t.booking.requestSent);
@@ -167,7 +316,12 @@ const AppShell: React.FC = () => {
       {/* ADMIN CODE ACCESS MODAL (CODE: 2006) */}
       <AnimatedModalShell
         isOpen={adminCodeModalOpen}
-        onClose={() => setAdminCodeModalOpen(false)}
+        onClose={() => {
+          setAdminCodeModalOpen(false);
+          if (window.location.pathname === '/admin' && !isAdmin) {
+            pushRoute(pathForView(view));
+          }
+        }}
         maxWidthClass="max-w-md"
       >
         <form
@@ -189,6 +343,7 @@ const AppShell: React.FC = () => {
               setAdminCodeModalOpen(false);
               setAdminCodeInput('');
               setView('admin');
+              pushRoute('/admin');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             } catch {
               setAdminCodeError(t.errors.generic);
@@ -200,7 +355,12 @@ const AppShell: React.FC = () => {
         >
           <button
             type="button"
-            onClick={() => setAdminCodeModalOpen(false)}
+            onClick={() => {
+              setAdminCodeModalOpen(false);
+              if (window.location.pathname === '/admin' && !isAdmin) {
+                pushRoute(pathForView(view));
+              }
+            }}
             aria-label={t.common.close}
             className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 absolute top-4 end-4 cursor-pointer"
           >
@@ -242,7 +402,12 @@ const AppShell: React.FC = () => {
           <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
-              onClick={() => setAdminCodeModalOpen(false)}
+              onClick={() => {
+                setAdminCodeModalOpen(false);
+                if (window.location.pathname === '/admin' && !isAdmin) {
+                  pushRoute(pathForView(view));
+                }
+              }}
               className="px-4 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-xl cursor-pointer"
             >
               {t.booking.cancel}

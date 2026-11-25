@@ -18,9 +18,15 @@ import {
   IRAQ_CITIES,
   IRAQ_GARAGES,
   IRAQ_GOVERNORATES,
+  RAFIDAIN_TRANSFER_NUMBER,
+  WEEKLY_DRIVER_COMMISSION_IQD,
 } from '../data/iraqReferenceData';
 import {
+  getSeatIdsForCapacity,
   getTripSeatPrice,
+  getTripWeekKey,
+  getWeekKey,
+  isTripCompletelyEmpty,
   resolveTripSeatPrices,
   type AccountStatus,
   type Booking,
@@ -28,6 +34,7 @@ import {
   type City,
   type Complaint,
   type DriverProfile,
+  type DriverWeeklyFee,
   type Garage,
   type Governorate,
   type LanguageCode,
@@ -506,6 +513,7 @@ export async function publishTrip(input: {
   estimatedDurationMin: number;
   pricePerSeatIqd: number;
   seatPrices?: SeatPricesMap;
+  fullCarPriceIqd?: number;
   cargoEnabled?: boolean;
   cargoPriceIqd?: number;
   originalPriceIqd?: number;
@@ -518,21 +526,53 @@ export async function publishTrip(input: {
   if (input.departureGovId === input.destinationGovId) {
     throw new Error('SAME_GOVERNORATE');
   }
+
+  // Enforce weekly 20,000 IQD commission gate starting after the driver's first trip of the week
+  const currentWeekKey = getWeekKey();
+  const driverTripsSnap = await getDocs(
+    query(collection(db, 'trips'), where('driverId', '==', input.driver.uid))
+  );
+  const tripsThisWeek = driverTripsSnap.docs
+    .map((d) => d.data() as Trip)
+    .filter((tr) => tr.status !== 'cancelled' && getTripWeekKey(tr) === currentWeekKey);
+
+  if (tripsThisWeek.length >= 1) {
+    const feeSnap = await getDoc(
+      doc(db, 'driver_weekly_fees', `${input.driver.uid}_${currentWeekKey}`)
+    );
+    const feeData = feeSnap.exists() ? (feeSnap.data() as DriverWeeklyFee) : null;
+    if (!feeData || feeData.status !== 'approved') {
+      throw new Error(
+        feeData?.status === 'pending' ? 'WEEKLY_COMMISSION_PENDING' : 'WEEKLY_COMMISSION_REQUIRED'
+      );
+    }
+  }
+
   const tripRef = doc(collection(db, 'trips'));
-  const normalizedSeatPrices = resolveTripSeatPrices({
+  const rawSeats = Number(input.totalSeats) || 4;
+  const seats = rawSeats >= 6 ? 6 : Math.max(1, Math.min(4, rawSeats));
+  const seatKeys = getSeatIdsForCapacity(seats);
+  const resolvedAllSeats = resolveTripSeatPrices({
     pricePerSeatIqd: input.pricePerSeatIqd,
     seatPrices: input.seatPrices,
   });
-  const effectiveMinPrice = Math.min(
-    normalizedSeatPrices.front_passenger,
-    normalizedSeatPrices.rear_right,
-    normalizedSeatPrices.rear_middle,
-    normalizedSeatPrices.rear_left
-  );
+  const storedSeatPrices: SeatPricesMap = {
+    front_passenger: resolvedAllSeats.front_passenger,
+    rear_right: resolvedAllSeats.rear_right,
+    rear_middle: resolvedAllSeats.rear_middle,
+    rear_left: resolvedAllSeats.rear_left,
+    ...(seats >= 6
+      ? {
+          extra_right: resolvedAllSeats.extra_right ?? resolvedAllSeats.rear_right,
+          extra_left: resolvedAllSeats.extra_left ?? resolvedAllSeats.rear_left,
+        }
+      : {}),
+  };
+  const effectiveMinPrice = Math.min(...seatKeys.map((s) => storedSeatPrices[s] ?? input.pricePerSeatIqd));
+  const fullCarPriceIqd = Math.max(0, Number(input.fullCarPriceIqd) || 0);
   const cargoEnabled = Boolean(input.cargoEnabled);
   const cargoPriceIqd = cargoEnabled ? Math.max(0, Number(input.cargoPriceIqd) || 0) : 0;
   const hasDiscount = Boolean(input.originalPriceIqd && input.originalPriceIqd > effectiveMinPrice);
-  const seats = Math.max(1, Math.min(4, Number(input.totalSeats) || 4));
   const resolvedVehicleId = input.vehicle?.id || `veh_${input.driver.uid}`;
   const resolvedVehicleModel = input.vehicle
     ? `${input.vehicle.makeModel} (${input.vehicle.year})`
@@ -559,7 +599,8 @@ export async function publishTrip(input: {
       departureTime: input.departureTime,
       estimatedDurationMin: Number(input.estimatedDurationMin) || 180,
       pricePerSeatIqd: effectiveMinPrice,
-      seatPrices: normalizedSeatPrices,
+      fullCarPriceIqd,
+      seatPrices: storedSeatPrices,
       cargoEnabled,
       cargoPriceIqd,
       originalPriceIqd: hasDiscount ? Number(input.originalPriceIqd) : 0,
@@ -592,6 +633,8 @@ export async function updateTripDetails(
     estimatedDurationMin: number;
     pricePerSeatIqd: number;
     seatPrices: SeatPricesMap;
+    fullCarPriceIqd?: number;
+    totalSeats?: number;
     cargoEnabled: boolean;
     cargoPriceIqd: number;
     notes?: string;
@@ -600,16 +643,27 @@ export async function updateTripDetails(
   if (input.departureGovId === input.destinationGovId) {
     throw new Error('SAME_GOVERNORATE');
   }
-  const normalizedSeatPrices = resolveTripSeatPrices({
+  const rawSeats = Number(input.totalSeats) || 4;
+  const seats = rawSeats >= 6 ? 6 : Math.max(1, Math.min(4, rawSeats));
+  const seatKeys = getSeatIdsForCapacity(seats);
+  const resolvedAllSeats = resolveTripSeatPrices({
     pricePerSeatIqd: input.pricePerSeatIqd,
     seatPrices: input.seatPrices,
   });
-  const effectiveMinPrice = Math.min(
-    normalizedSeatPrices.front_passenger,
-    normalizedSeatPrices.rear_right,
-    normalizedSeatPrices.rear_middle,
-    normalizedSeatPrices.rear_left
-  );
+  const storedSeatPrices: SeatPricesMap = {
+    front_passenger: resolvedAllSeats.front_passenger,
+    rear_right: resolvedAllSeats.rear_right,
+    rear_middle: resolvedAllSeats.rear_middle,
+    rear_left: resolvedAllSeats.rear_left,
+    ...(seats >= 6
+      ? {
+          extra_right: resolvedAllSeats.extra_right ?? resolvedAllSeats.rear_right,
+          extra_left: resolvedAllSeats.extra_left ?? resolvedAllSeats.rear_left,
+        }
+      : {}),
+  };
+  const effectiveMinPrice = Math.min(...seatKeys.map((s) => storedSeatPrices[s] ?? input.pricePerSeatIqd));
+  const fullCarPriceIqd = Math.max(0, Number(input.fullCarPriceIqd) || 0);
   const cargoEnabled = Boolean(input.cargoEnabled);
   const cargoPriceIqd = cargoEnabled ? Math.max(0, Number(input.cargoPriceIqd) || 0) : 0;
 
@@ -623,7 +677,10 @@ export async function updateTripDetails(
       departureTime: input.departureTime,
       estimatedDurationMin: Number(input.estimatedDurationMin) || 180,
       pricePerSeatIqd: effectiveMinPrice,
-      seatPrices: normalizedSeatPrices,
+      fullCarPriceIqd,
+      seatPrices: storedSeatPrices,
+      totalSeats: seats,
+      availableSeats: seats,
       cargoEnabled,
       cargoPriceIqd,
       notes: (input.notes || '').trim().slice(0, 400),
@@ -734,6 +791,7 @@ export async function createBookingTransaction(input: {
   customDropOffLng?: number;
   customDropOffAddress?: string;
   redeemFreeTrip: boolean;
+  isFullCar?: boolean;
   settings: PlatformSettings;
   returnTrip?: Trip | null;
 }): Promise<string> {
@@ -751,11 +809,20 @@ export async function createBookingTransaction(input: {
     customDropOffLng,
     customDropOffAddress,
     redeemFreeTrip,
+    isFullCar,
     settings,
     returnTrip,
   } = input;
-  const chosenSeats = Array.from(new Set(selectedSeats || []));
-  const effectiveSeatsCount = chosenSeats.length > 0 ? chosenSeats.length : seatsCount;
+  const fullCarBooking = Boolean(isFullCar);
+  const chosenSeats = fullCarBooking
+    ? getSeatIdsForCapacity(trip.totalSeats)
+    : Array.from(new Set(selectedSeats || []));
+  const effectiveSeatsCount = fullCarBooking
+    ? trip.totalSeats
+    : chosenSeats.length > 0
+      ? chosenSeats.length
+      : seatsCount;
+  const effectiveRedeemFreeTrip = fullCarBooking ? false : redeemFreeTrip;
   const hasCustomDropOff =
     Boolean(useCustomDropOff) &&
     typeof customDropOffLat === 'number' &&
@@ -768,14 +835,20 @@ export async function createBookingTransaction(input: {
   if (trip.driverId === passenger.uid) {
     throw new Error('CANNOT_BOOK_OWN_TRIP');
   }
-  const initialSeatsSubtotal =
-    chosenSeats.length > 0
+  if (fullCarBooking) {
+    if (!isTripCompletelyEmpty(trip) || Number(trip.fullCarPriceIqd || 0) <= 0) {
+      throw new Error('CAR_NOT_EMPTY');
+    }
+  }
+  const initialSeatsSubtotal = fullCarBooking
+    ? Number(trip.fullCarPriceIqd || 0)
+    : chosenSeats.length > 0
       ? chosenSeats.reduce((sum, seat) => sum + getTripSeatPrice(trip, seat), 0)
       : trip.pricePerSeatIqd * effectiveSeatsCount;
-  if (redeemFreeTrip && effectiveSeatsCount !== 1) {
+  if (effectiveRedeemFreeTrip && effectiveSeatsCount !== 1) {
     throw new Error('FREE_TRIP_SINGLE_SEAT_ONLY');
   }
-  if (redeemFreeTrip && initialSeatsSubtotal > settings.maxFreeTripValueIqd) {
+  if (effectiveRedeemFreeTrip && initialSeatsSubtotal > settings.maxFreeTripValueIqd) {
     throw new Error('EXCEEDS_MAX_FREE_VALUE');
   }
 
@@ -792,10 +865,9 @@ export async function createBookingTransaction(input: {
   }
 
   const bookingRef = doc(collection(db, 'bookings'));
-  const returnBookingRef = returnTrip ? doc(collection(db, 'bookings')) : null;
+  const returnBookingRef = !fullCarBooking && returnTrip ? doc(collection(db, 'bookings')) : null;
   const notifRef = doc(collection(db, 'notifications'));
   const txRef = doc(collection(db, 'points_transactions'));
-  const allCabinSeats: CabinSeatId[] = ['front_passenger', 'rear_right', 'rear_middle', 'rear_left'];
 
   try {
     await runTransaction(db, async (tx) => {
@@ -803,29 +875,41 @@ export async function createBookingTransaction(input: {
       if (!tripSnap.exists()) throw new Error('TRIP_NOT_FOUND');
       const liveTrip = tripSnap.data() as Trip;
       const currentBookedSeats = (liveTrip.bookedSeats || []) as CabinSeatId[];
-      if (liveTrip.status !== 'scheduled' || liveTrip.availableSeats < effectiveSeatsCount) {
-        throw new Error('INSUFFICIENT_SEATS');
+
+      if (fullCarBooking) {
+        if (!isTripCompletelyEmpty(liveTrip) || Number(liveTrip.fullCarPriceIqd || 0) <= 0) {
+          throw new Error('CAR_NOT_EMPTY');
+        }
+      } else {
+        if (liveTrip.status !== 'scheduled' || liveTrip.availableSeats < effectiveSeatsCount) {
+          throw new Error('INSUFFICIENT_SEATS');
+        }
+        if (chosenSeats.some((seat) => currentBookedSeats.includes(seat))) {
+          throw new Error('SEAT_ALREADY_BOOKED');
+        }
       }
-      if (chosenSeats.some((seat) => currentBookedSeats.includes(seat))) {
-        throw new Error('SEAT_ALREADY_BOOKED');
-      }
+
+      const liveChosenSeats = fullCarBooking
+        ? getSeatIdsForCapacity(liveTrip.totalSeats)
+        : chosenSeats;
+      const liveSeatsCount = fullCarBooking ? liveTrip.totalSeats : effectiveSeatsCount;
 
       let returnLiveTrip: Trip | null = null;
       let returnAssignedSeats: CabinSeatId[] = [];
-      if (returnTrip && returnBookingRef) {
+      if (!fullCarBooking && returnTrip && returnBookingRef) {
         const retSnap = await tx.get(doc(db, 'trips', returnTrip.id));
         if (!retSnap.exists()) throw new Error('TRIP_NOT_FOUND');
         returnLiveTrip = retSnap.data() as Trip;
-        if (returnLiveTrip.status !== 'scheduled' || returnLiveTrip.availableSeats < effectiveSeatsCount) {
+        if (returnLiveTrip.status !== 'scheduled' || returnLiveTrip.availableSeats < liveSeatsCount) {
           throw new Error('INSUFFICIENT_SEATS');
         }
         const retBooked = (returnLiveTrip.bookedSeats || []) as CabinSeatId[];
-        const retFree = allCabinSeats.filter((s) => !retBooked.includes(s));
-        returnAssignedSeats = retFree.slice(0, effectiveSeatsCount);
+        const retFree = getSeatIdsForCapacity(returnLiveTrip.totalSeats).filter((s) => !retBooked.includes(s));
+        returnAssignedSeats = retFree.slice(0, liveSeatsCount);
       }
 
       let walletData: PointsWallet | null = null;
-      if (redeemFreeTrip) {
+      if (effectiveRedeemFreeTrip) {
         const wSnap = await tx.get(doc(db, 'points_wallets', passenger.uid));
         if (!wSnap.exists()) throw new Error('INSUFFICIENT_POINTS');
         walletData = wSnap.data() as PointsWallet;
@@ -835,19 +919,22 @@ export async function createBookingTransaction(input: {
       }
 
       // All reads complete — execute writes
-      const seatsSubtotalIqd =
-        chosenSeats.length > 0
-          ? chosenSeats.reduce((sum, seat) => sum + getTripSeatPrice(liveTrip, seat), 0)
-          : liveTrip.pricePerSeatIqd * effectiveSeatsCount;
+      const seatsSubtotalIqd = fullCarBooking
+        ? Number(liveTrip.fullCarPriceIqd || 0)
+        : liveChosenSeats.length > 0
+          ? liveChosenSeats.reduce((sum, seat) => sum + getTripSeatPrice(liveTrip, seat), 0)
+          : liveTrip.pricePerSeatIqd * liveSeatsCount;
       const canIncludeCargo = Boolean(
         includeCargo && liveTrip.cargoEnabled && Number(liveTrip.cargoPriceIqd || 0) >= 0
       );
       const cargoFeeIqd = canIncludeCargo ? Number(liveTrip.cargoPriceIqd || 0) : 0;
       const totalPriceIqd =
-        (redeemFreeTrip ? 0 : seatsSubtotalIqd) + cargoFeeIqd + customDropOffFeeIqd;
-      const pointsRedeemed = redeemFreeTrip ? settings.freeTripCostPoints : 0;
+        (effectiveRedeemFreeTrip ? 0 : seatsSubtotalIqd) + cargoFeeIqd + customDropOffFeeIqd;
+      const pointsRedeemed = effectiveRedeemFreeTrip ? settings.freeTripCostPoints : 0;
       const singleSeatPrice =
-        chosenSeats.length === 1 ? getTripSeatPrice(liveTrip, chosenSeats[0]) : liveTrip.pricePerSeatIqd;
+        !fullCarBooking && liveChosenSeats.length === 1
+          ? getTripSeatPrice(liveTrip, liveChosenSeats[0])
+          : liveTrip.pricePerSeatIqd;
 
       tx.set(bookingRef, {
         tripId: trip.id,
@@ -860,8 +947,9 @@ export async function createBookingTransaction(input: {
         destinationGovId: liveTrip.destinationGovId,
         departureDate: liveTrip.departureDate,
         departureTime: liveTrip.departureTime,
-        seatsCount: effectiveSeatsCount,
-        ...(chosenSeats.length > 0 ? { selectedSeats: chosenSeats } : {}),
+        seatsCount: liveSeatsCount,
+        ...(liveChosenSeats.length > 0 ? { selectedSeats: liveChosenSeats } : {}),
+        isFullCar: fullCarBooking,
         seatPriceIqd: singleSeatPrice,
         seatsSubtotalIqd,
         includeCargo: canIncludeCargo,
@@ -871,9 +959,9 @@ export async function createBookingTransaction(input: {
           : {}),
         totalPriceIqd,
         pointsRedeemed,
-        isFreeTrip: redeemFreeTrip,
-        isRoundTrip: Boolean(returnTrip),
-        returnTripId: returnTrip ? returnTrip.id : '',
+        isFreeTrip: effectiveRedeemFreeTrip,
+        isRoundTrip: Boolean(!fullCarBooking && returnTrip),
+        returnTripId: !fullCarBooking && returnTrip ? returnTrip.id : '',
         passengerNotes: (notes || '').trim().slice(0, 300),
         useCustomDropOff: hasCustomDropOff,
         customDropOffFeeIqd,
@@ -893,15 +981,15 @@ export async function createBookingTransaction(input: {
         updatedAt: serverTimestamp(),
       });
 
-      if (chosenSeats.length > 0) {
+      if (liveChosenSeats.length > 0) {
         tx.update(doc(db, 'trips', trip.id), {
-          bookedSeats: Array.from(new Set([...currentBookedSeats, ...chosenSeats])),
+          bookedSeats: Array.from(new Set([...currentBookedSeats, ...liveChosenSeats])),
           lastBookingId: bookingRef.id,
           updatedAt: serverTimestamp(),
         });
       }
 
-      if (redeemFreeTrip && walletData) {
+      if (effectiveRedeemFreeTrip && walletData) {
         tx.update(doc(db, 'points_wallets', passenger.uid), {
           balance: walletData.balance - pointsRedeemed,
           totalRedeemed: walletData.totalRedeemed + pointsRedeemed,
@@ -919,7 +1007,7 @@ export async function createBookingTransaction(input: {
         });
       }
 
-      if (returnTrip && returnBookingRef && returnLiveTrip) {
+      if (!fullCarBooking && returnTrip && returnBookingRef && returnLiveTrip) {
         tx.set(returnBookingRef, {
           tripId: returnTrip.id,
           passengerId: passenger.uid,
@@ -931,10 +1019,11 @@ export async function createBookingTransaction(input: {
           destinationGovId: returnLiveTrip.destinationGovId,
           departureDate: returnLiveTrip.departureDate,
           departureTime: returnLiveTrip.departureTime,
-          seatsCount: effectiveSeatsCount,
+          seatsCount: liveSeatsCount,
           ...(returnAssignedSeats.length > 0 ? { selectedSeats: returnAssignedSeats } : {}),
+          isFullCar: false,
           seatPriceIqd: returnLiveTrip.pricePerSeatIqd,
-          totalPriceIqd: returnLiveTrip.pricePerSeatIqd * effectiveSeatsCount,
+          totalPriceIqd: returnLiveTrip.pricePerSeatIqd * liveSeatsCount,
           pointsRedeemed: 0,
           isFreeTrip: false,
           isRoundTrip: true,
@@ -959,12 +1048,18 @@ export async function createBookingTransaction(input: {
 
       tx.set(notifRef, {
         userId: liveTrip.driverId,
-        titleAr: 'طلب حجز جديد',
-        titleKu: 'داواکاری حجزێکی نوێ',
-        titleEn: 'New Booking Request',
-        bodyAr: `طلب ${passenger.displayName} حجز ${effectiveSeatsCount} مقعد لرحلة ${liveTrip.departureDate}.`,
-        bodyKu: `${passenger.displayName} داوای ${effectiveSeatsCount} کورسی کرد بۆ گەشتی ${liveTrip.departureDate}.`,
-        bodyEn: `${passenger.displayName} requested ${effectiveSeatsCount} seat(s) for ${liveTrip.departureDate}.`,
+        titleAr: fullCarBooking ? 'طلب حجز سيارة كاملة جديد' : 'طلب حجز جديد',
+        titleKu: fullCarBooking ? 'داواکاری حجزی تەواوی ئۆتۆمبێل' : 'داواکاری حجزێکی نوێ',
+        titleEn: fullCarBooking ? 'New Full-Car Booking Request' : 'New Booking Request',
+        bodyAr: fullCarBooking
+          ? `طلب ${passenger.displayName} حجز السيارة كاملة (${liveSeatsCount} مقاعد) لرحلة ${liveTrip.departureDate}.`
+          : `طلب ${passenger.displayName} حجز ${liveSeatsCount} مقعد لرحلة ${liveTrip.departureDate}.`,
+        bodyKu: fullCarBooking
+          ? `${passenger.displayName} داوای حجزی تەواوی ئۆتۆمبێلی کرد (${liveSeatsCount} کورسی) بۆ گەشتی ${liveTrip.departureDate}.`
+          : `${passenger.displayName} داوای ${liveSeatsCount} کورسی کرد بۆ گەشتی ${liveTrip.departureDate}.`,
+        bodyEn: fullCarBooking
+          ? `${passenger.displayName} requested a full-car booking (${liveSeatsCount} seats) for ${liveTrip.departureDate}.`
+          : `${passenger.displayName} requested ${liveSeatsCount} seat(s) for ${liveTrip.departureDate}.`,
         type: 'booking',
         relatedId: bookingRef.id,
         isRead: false,
@@ -983,6 +1078,7 @@ export async function createBookingTransaction(input: {
         'INSUFFICIENT_POINTS',
         'TRIP_NOT_FOUND',
         'SEAT_ALREADY_BOOKED',
+        'CAR_NOT_EMPTY',
       ].includes(err.message)
     ) {
       throw err;
@@ -1911,5 +2007,119 @@ export async function adminSendNotification(
     });
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, `notifications/${ref.id}`);
+  }
+}
+
+export async function submitWeeklyCommissionPayment(input: {
+  driver: DriverProfile;
+  senderNameOnTransfer: string;
+  weekKey?: string;
+}): Promise<string> {
+  const cleanSender = input.senderNameOnTransfer.trim().slice(0, 120);
+  if (cleanSender.length < 2) {
+    throw new Error('INVALID_TRANSFER_NAME');
+  }
+  const weekKey = input.weekKey || getWeekKey();
+  const feeId = `${input.driver.uid}_${weekKey}`;
+  const feeRef = doc(db, 'driver_weekly_fees', feeId);
+
+  try {
+    const existing = await getDoc(feeRef);
+    if (existing.exists()) {
+      const data = existing.data() as DriverWeeklyFee;
+      if (data.status === 'approved') {
+        return feeId;
+      }
+      if (data.status === 'pending') {
+        throw new Error('WEEKLY_COMMISSION_PENDING');
+      }
+      await updateDoc(feeRef, {
+        driverName: input.driver.fullName.trim().slice(0, 100),
+        driverPhone: (input.driver.phone || '').trim().slice(0, 24),
+        senderNameOnTransfer: cleanSender,
+        status: 'pending',
+        adminNotes: '',
+        reviewedBy: '',
+        updatedAt: serverTimestamp(),
+      });
+      return feeId;
+    }
+
+    await setDoc(feeRef, {
+      driverId: input.driver.uid,
+      driverName: input.driver.fullName.trim().slice(0, 100),
+      driverPhone: (input.driver.phone || '').trim().slice(0, 24),
+      senderNameOnTransfer: cleanSender,
+      weekKey,
+      amountIqd: WEEKLY_DRIVER_COMMISSION_IQD,
+      rafidainNumber: RAFIDAIN_TRANSFER_NUMBER,
+      status: 'pending',
+      adminNotes: '',
+      reviewedBy: '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return feeId;
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      ['WEEKLY_COMMISSION_PENDING', 'INVALID_TRANSFER_NAME'].includes(err.message)
+    ) {
+      throw err;
+    }
+    handleFirestoreError(err, OperationType.WRITE, `driver_weekly_fees/${feeId}`);
+  }
+}
+
+export async function adminReviewWeeklyCommission(
+  feeId: string,
+  driverId: string,
+  status: 'approved' | 'rejected',
+  adminUid: string,
+  adminNotes = ''
+): Promise<void> {
+  const cleanNotes = status === 'approved' ? '' : adminNotes.trim().slice(0, 400);
+  try {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'driver_weekly_fees', feeId), {
+      status,
+      adminNotes: cleanNotes,
+      reviewedBy: adminUid.slice(0, 128),
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(collection(db, 'notifications')), {
+      userId: driverId,
+      titleAr:
+        status === 'approved'
+          ? 'تم اعتماد اشتراك الأسبوع (20,000 د.ع)'
+          : 'تم رفض إثبات عمولة الأسبوع',
+      titleKu:
+        status === 'approved'
+          ? 'کۆمیسیۆنی هەفتانە پەسەندکرا (20,000 د.ع)'
+          : 'پارەدانی هەفتانە ڕەتکرایەوە',
+      titleEn:
+        status === 'approved'
+          ? 'Weekly Commission Approved (20,000 IQD)'
+          : 'Weekly Commission Rejected',
+      bodyAr:
+        status === 'approved'
+          ? 'تمت مطابقة حوالة الرافدين وتفعيل حسابك لنشر الرحلات هذا الأسبوع.'
+          : `يرجى إعادة التحويل على رقم الرافدين (${RAFIDAIN_TRANSFER_NUMBER}) مع كتابة اسمك في ملاحظات التحويل. ${cleanNotes}`,
+      bodyKu:
+        status === 'approved'
+          ? 'حەواڵەی ڕافیدەین پشتڕاستکرایەوە و دەتوانیت گەشت بڵاوبکەیتەوە.'
+          : `تکایە حەواڵە بنێرەوە بۆ (${RAFIDAIN_TRANSFER_NUMBER}) و ناوت لە تێبینی بنووسە. ${cleanNotes}`,
+      bodyEn:
+        status === 'approved'
+          ? 'Your 20,000 IQD Rafidain transfer was verified. You can now publish trips this week.'
+          : `Please re-submit your 20,000 IQD Rafidain transfer (${RAFIDAIN_TRANSFER_NUMBER}) with your name in the transfer notes. ${cleanNotes}`,
+      type: 'payment',
+      relatedId: feeId,
+      isRead: false,
+      createdAt: serverTimestamp(),
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `driver_weekly_fees/${feeId}`);
   }
 }

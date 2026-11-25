@@ -7,6 +7,7 @@ import type { LanguageCode, VerificationStatus } from '../types/domain';
 
 export type AppView =
   | 'home'
+  | 'empty-cars'
   | 'passenger'
   | 'driver'
   | 'admin'
@@ -102,6 +103,15 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
             className="hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer py-1"
           >
             {t.nav.searchTrips}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleNavClick('empty-cars')}
+            className={`transition-colors whitespace-nowrap shrink-0 cursor-pointer py-1 ${
+              currentView === 'empty-cars' ? 'text-[#60A5FA] font-semibold' : 'hover:text-white'
+            }`}
+          >
+            {t.nav.emptyCars}
           </button>
           <button
             type="button"
@@ -234,6 +244,17 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                 }`}
               >
                 {t.nav.searchTrips}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavClick('empty-cars')}
+                className={`w-full text-start px-3.5 py-2.5 text-[15px] font-medium rounded-xl transition-colors cursor-pointer ${
+                  currentView === 'empty-cars'
+                    ? 'bg-white/10 text-white font-semibold'
+                    : 'text-white/90 hover:bg-white/10 hover:text-white active:bg-white/15'
+                }`}
+              >
+                {t.nav.emptyCars}
               </button>
               <button
                 type="button"

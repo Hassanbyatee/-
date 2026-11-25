@@ -6,13 +6,21 @@ import {
   Car,
   CheckCircle2,
   Clock,
+  Lock,
   MapPin,
   Package,
   Star,
   Users,
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
-import { getTripMaxSeatPrice, getTripMinSeatPrice, type Garage, type Governorate, type Trip } from '../types/domain';
+import {
+  getTripMaxSeatPrice,
+  getTripMinSeatPrice,
+  isTripCompletelyEmpty,
+  type Garage,
+  type Governorate,
+  type Trip,
+} from '../types/domain';
 
 interface TripCardProps {
   trip: Trip;
@@ -20,6 +28,7 @@ interface TripCardProps {
   garages: Garage[];
   currentUserId?: string;
   onBook: (trip: Trip) => void;
+  onBookFullCar?: (trip: Trip) => void;
   onSeatAlert: (trip: Trip) => Promise<void>;
 }
 
@@ -28,6 +37,7 @@ export const TripCard: React.FC<TripCardProps> = ({
   governorates,
   currentUserId,
   onBook,
+  onBookFullCar,
   onSeatAlert,
 }) => {
   const { dir, getLocalizedName, formatIqd, t } = useI18n();
@@ -42,6 +52,8 @@ export const TripCard: React.FC<TripCardProps> = ({
   const minSeatPrice = getTripMinSeatPrice(trip);
   const maxSeatPrice = getTripMaxSeatPrice(trip);
   const hasVariedSeatPrices = maxSeatPrice > minSeatPrice;
+  const hasFullCarPrice = Number(trip.fullCarPriceIqd || 0) > 0;
+  const isCompletelyEmpty = isTripCompletelyEmpty(trip);
 
   const handleAlert = async () => {
     await onSeatAlert(trip);
@@ -215,6 +227,29 @@ export const TripCard: React.FC<TripCardProps> = ({
             >
               {t.tripCard.bookSeat}
             </button>
+          )}
+
+          {hasFullCarPrice && onBookFullCar && !isOwnTrip && (
+            isCompletelyEmpty ? (
+              <button
+                type="button"
+                onClick={() => onBookFullCar(trip)}
+                className="w-full px-3 py-1.5 text-[11px] font-bold text-[#05203C] bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg hover:bg-[#DBEAFE] transition-colors whitespace-nowrap cursor-pointer"
+              >
+                {t.tripCard.bookFullCar} · {formatIqd(Number(trip.fullCarPriceIqd || 0))}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                title={t.tripCard.carNotEmptyTooltip}
+                className="w-full px-3 py-1.5 text-[11px] font-bold bg-slate-200 text-slate-500 border border-slate-300 rounded-lg opacity-45 cursor-not-allowed pointer-events-none select-none inline-flex items-center justify-center gap-1 whitespace-nowrap"
+              >
+                <Lock className="w-3 h-3 shrink-0" />
+                <span>{t.tripCard.carNotEmpty}</span>
+              </button>
+            )
           )}
         </div>
       </div>

@@ -7,8 +7,10 @@ import { AnimatedModalShell } from './motion/KineticPrimitives';
 import { CarCabinSeatSelector } from './CarCabinSeatSelector';
 import { DropOffMapPicker } from './DropOffMapPicker';
 import {
+  getSeatIdsForCapacity,
   getTripMinSeatPrice,
   getTripSeatPrice,
+  isTripCompletelyEmpty,
   resolveTripSeatPrices,
   type CabinSeatId,
   type Trip,
@@ -16,14 +18,26 @@ import {
 
 interface BookingModalProps {
   trip: Trip | null;
+  mode?: 'seats' | 'full_car';
   onClose: () => void;
   onSuccess: (dropOffCoords?: { lat: number; lng: number } | null) => void;
 }
 
-const ALL_CABIN_SEATS: CabinSeatId[] = ['front_passenger', 'rear_right', 'rear_middle', 'rear_left'];
-const LEGACY_FILL_ORDER: CabinSeatId[] = ['rear_left', 'rear_right', 'rear_middle', 'front_passenger'];
+const LEGACY_FILL_ORDER: CabinSeatId[] = [
+  'rear_left',
+  'rear_right',
+  'rear_middle',
+  'front_passenger',
+  'extra_left',
+  'extra_right',
+];
 
-export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, onClose, onSuccess }) => {
+export const BookingModal: React.FC<BookingModalProps> = ({
+  trip: initialTrip,
+  mode = 'seats',
+  onClose,
+  onSuccess,
+}) => {
   const { getLocalizedName, formatIqd, t } = useI18n();
   const { userProfile, privateInfo, wallet, settings, governorates, trips } = useAuth();
 
@@ -31,6 +45,13 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
     () => (initialTrip ? trips.find((tr) => tr.id === initialTrip.id) || initialTrip : null),
     [initialTrip, trips]
   );
+
+  const isFullCarMode = mode === 'full_car';
+  const tripCapacity = trip ? (Number(trip.totalSeats) >= 6 ? 6 : Math.max(1, Number(trip.totalSeats) || 4)) : 4;
+  const activeCabinSeats = useMemo(() => getSeatIdsForCapacity(tripCapacity), [tripCapacity]);
+  const isCompletelyEmpty = isTripCompletelyEmpty(trip);
+  const fullCarPriceIqd = Number(trip?.fullCarPriceIqd || 0);
+  const hasValidFullCarPrice = fullCarPriceIqd > 0;
 
   const [selectedSeats, setSelectedSeats] = useState<CabinSeatId[]>([]);
   const [useCustomDropOff, setUseCustomDropOff] = useState(false);
@@ -48,15 +69,21 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
   const effectiveBookedSeats = useMemo<CabinSeatId[]>(() => {
     if (!trip) return [];
     const booked = new Set<CabinSeatId>(trip.bookedSeats || []);
-    const occupiedCount = Math.max(0, Math.min(4, trip.totalSeats) - trip.availableSeats);
+    const occupiedCount = Math.max(0, Math.min(tripCapacity, trip.totalSeats) - trip.availableSeats);
     for (const seat of LEGACY_FILL_ORDER) {
       if (booked.size >= occupiedCount) break;
-      booked.add(seat);
+      if (activeCabinSeats.includes(seat)) {
+        booked.add(seat);
+      }
     }
     return Array.from(booked);
-  }, [trip]);
+  }, [trip, tripCapacity, activeCabinSeats]);
 
-  const maxSelectable = trip ? Math.max(0, Math.min(4, trip.availableSeats)) : 0;
+  const maxSelectable = trip
+    ? isFullCarMode
+      ? tripCapacity
+      : Math.max(0, Math.min(tripCapacity, trip.availableSeats))
+    : 0;
 
   useEffect(() => {
     if (!trip) {
@@ -73,14 +100,20 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
       setErrorMsg('');
       return;
     }
-    const bookedSet = new Set<CabinSeatId>(trip.bookedSeats || []);
-    const occupiedCount = Math.max(0, Math.min(4, trip.totalSeats) - trip.availableSeats);
-    for (const seat of LEGACY_FILL_ORDER) {
-      if (bookedSet.size >= occupiedCount) break;
-      bookedSet.add(seat);
+    if (isFullCarMode) {
+      setSelectedSeats(isCompletelyEmpty ? activeCabinSeats : []);
+    } else {
+      const bookedSet = new Set<CabinSeatId>(trip.bookedSeats || []);
+      const occupiedCount = Math.max(0, Math.min(tripCapacity, trip.totalSeats) - trip.availableSeats);
+      for (const seat of LEGACY_FILL_ORDER) {
+        if (bookedSet.size >= occupiedCount) break;
+        if (activeCabinSeats.includes(seat)) {
+          bookedSet.add(seat);
+        }
+      }
+      const firstAvailable = activeCabinSeats.find((s) => !bookedSet.has(s));
+      setSelectedSeats(firstAvailable && trip.availableSeats > 0 ? [firstAvailable] : []);
     }
-    const firstAvailable = ALL_CABIN_SEATS.find((s) => !bookedSet.has(s));
-    setSelectedSeats(firstAvailable && trip.availableSeats > 0 ? [firstAvailable] : []);
     setUseCustomDropOff(false);
     setDropOffCoords(null);
     setDropOffAddress('');
@@ -91,12 +124,12 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
     setReturnTripId('');
     setNotes('');
     setErrorMsg('');
-  }, [trip?.id, trip?.availableSeats, trip?.totalSeats, trip?.bookedSeats]);
+  }, [trip?.id, trip?.availableSeats, trip?.totalSeats, trip?.bookedSeats, isFullCarMode, isCompletelyEmpty, tripCapacity, activeCabinSeats]);
 
   const seatsCount = selectedSeats.length;
 
   const handleToggleSeat = (seatId: CabinSeatId) => {
-    if (effectiveBookedSeats.includes(seatId)) return;
+    if (isFullCarMode || effectiveBookedSeats.includes(seatId)) return;
     setErrorMsg('');
     setSelectedSeats((prev) => {
       let next: CabinSeatId[];
@@ -117,7 +150,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
   };
 
   const returnOptions = useMemo(() => {
-    if (!trip) return [];
+    if (!trip || isFullCarMode) return [];
     const needed = Math.max(1, seatsCount);
     return trips.filter(
       (cand) =>
@@ -129,7 +162,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
         cand.availableSeats >= needed &&
         cand.driverId !== userProfile?.uid
     );
-  }, [trip, trips, seatsCount, userProfile?.uid]);
+  }, [trip, trips, seatsCount, userProfile?.uid, isFullCarMode]);
 
   const isOpen = Boolean(trip && userProfile);
   const isPassengerApproved =
@@ -137,21 +170,23 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
 
   const depGov = trip ? governorates.find((g) => g.id === trip.departureGovId) : undefined;
   const dstGov = trip ? governorates.find((g) => g.id === trip.destinationGovId) : undefined;
-  const selectedReturnTrip = roundTripEnabled
-    ? returnOptions.find((r) => r.id === returnTripId) || null
-    : null;
+  const selectedReturnTrip =
+    !isFullCarMode && roundTripEnabled
+      ? returnOptions.find((r) => r.id === returnTripId) || null
+      : null;
 
   const tripSeatPrices = useMemo(() => resolveTripSeatPrices(trip), [trip]);
-  const seatsSubtotalIqd = useMemo(
-    () => (trip ? selectedSeats.reduce((sum, seat) => sum + getTripSeatPrice(trip, seat), 0) : 0),
-    [trip, selectedSeats]
-  );
+  const seatsSubtotalIqd = useMemo(() => {
+    if (!trip) return 0;
+    if (isFullCarMode) return fullCarPriceIqd;
+    return selectedSeats.reduce((sum, seat) => sum + getTripSeatPrice(trip, seat), 0);
+  }, [trip, selectedSeats, isFullCarMode, fullCarPriceIqd]);
   const cargoSupported = Boolean(trip?.cargoEnabled && Number(trip?.cargoPriceIqd || 0) > 0);
   const cargoFeeIqd = cargoSupported && includeCargo ? Number(trip?.cargoPriceIqd || 0) : 0;
 
   const hasEnoughPoints = (wallet?.balance || 0) >= settings.freeTripCostPoints;
   const withinFreeCap = trip ? seatsSubtotalIqd <= settings.maxFreeTripValueIqd : false;
-  const canRedeemPoints = hasEnoughPoints && withinFreeCap && seatsCount === 1;
+  const canRedeemPoints = !isFullCarMode && hasEnoughPoints && withinFreeCap && seatsCount === 1;
 
   const outboundCash = trip ? (redeemFreeTrip ? 0 : seatsSubtotalIqd) : 0;
   const customDropOffFeeIqd = useCustomDropOff ? CUSTOM_DROPOFF_FEE_IQD : 0;
@@ -163,6 +198,10 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
     if (!trip || !userProfile) return;
     if (!isPassengerApproved) {
       setErrorMsg(t.errors.unapprovedUser);
+      return;
+    }
+    if (isFullCarMode && (!isCompletelyEmpty || !hasValidFullCarPrice)) {
+      setErrorMsg(t.booking.carNotEmptyError);
       return;
     }
     if (selectedSeats.length === 0) {
@@ -182,6 +221,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
         passengerPhone: privateInfo?.phone || '',
         seatsCount: selectedSeats.length,
         selectedSeats,
+        isFullCar: isFullCarMode,
         notes,
         includeCargo: cargoSupported && includeCargo,
         cargoNotes,
@@ -189,7 +229,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
         customDropOffLat: dropOffCoords?.lat,
         customDropOffLng: dropOffCoords?.lng,
         customDropOffAddress: dropOffAddress,
-        redeemFreeTrip,
+        redeemFreeTrip: isFullCarMode ? false : redeemFreeTrip,
         settings,
         returnTrip: selectedReturnTrip,
       });
@@ -199,6 +239,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
       const code = err instanceof Error ? err.message : '';
       if (code === 'UNAPPROVED_USER') setErrorMsg(t.errors.unapprovedUser);
       else if (code === 'CANNOT_BOOK_OWN_TRIP') setErrorMsg(t.tripCard.ownTrip);
+      else if (code === 'CAR_NOT_EMPTY') setErrorMsg(t.booking.carNotEmptyError);
       else if (code === 'INSUFFICIENT_SEATS') setErrorMsg(t.errors.insufficientSeats);
       else if (code === 'SEAT_ALREADY_BOOKED') setErrorMsg(t.booking.seatAlreadyBooked);
       else if (code === 'DUPLICATE_BOOKING') setErrorMsg(t.errors.duplicateBooking);
@@ -224,7 +265,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
           </button>
 
           <div className="border-b border-slate-100 pb-4 pe-8">
-            <h2 className="text-xl font-bold text-[#05203C]">{t.booking.modalTitle}</h2>
+            <h2 className="text-xl font-bold text-[#05203C]">
+              {isFullCarMode ? t.booking.fullCarModalTitle : t.booking.modalTitle}
+            </h2>
             <p className="text-sm text-slate-600 mt-1">
               {getLocalizedName(depGov)} → {getLocalizedName(dstGov)} ·{' '}
               <span className="font-mono tabular-nums">
@@ -232,9 +275,18 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
               </span>
             </p>
             <p className="text-xs text-[#0770E3] font-semibold mt-1">
-              {trip.vehicleModel} · {trip.availableSeats} {t.tripCard.seatsAvailable} ·{' '}
-              {t.map.startingFrom}{' '}
-              <span className="font-mono tabular-nums">{formatIqd(getTripMinSeatPrice(trip))}</span>
+              {trip.vehicleModel} · {tripCapacity} {t.tripCard.seatsUnit} ·{' '}
+              {isFullCarMode ? (
+                <>
+                  {t.tripCard.fullCarPriceLabel}:{' '}
+                  <span className="font-mono tabular-nums">{formatIqd(fullCarPriceIqd)}</span>
+                </>
+              ) : (
+                <>
+                  {trip.availableSeats} {t.tripCard.seatsAvailable} · {t.map.startingFrom}{' '}
+                  <span className="font-mono tabular-nums">{formatIqd(getTripMinSeatPrice(trip))}</span>
+                </>
+              )}
             </p>
           </div>
 
@@ -248,13 +300,23 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
             </div>
           )}
 
+          {isFullCarMode && (!isCompletelyEmpty || !hasValidFullCarPrice) && (
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start gap-3 text-xs text-rose-900">
+              <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" />
+              <p className="font-semibold">{t.booking.carNotEmptyError}</p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Interactive Top-Down 3D Car Seat Selector with Per-Seat Prices */}
+            {/* Interactive Top-Down 3D Car Seat Selector with 4/6-Seat Support & Per-Seat Prices */}
             <CarCabinSeatSelector
               bookedSeats={effectiveBookedSeats}
               selectedSeats={selectedSeats}
               maxSelectable={maxSelectable}
               seatPrices={tripSeatPrices}
+              totalSeats={tripCapacity}
+              fullCarMode={isFullCarMode}
+              fullCarPriceIqd={fullCarPriceIqd}
               onToggleSeat={handleToggleSeat}
             />
 
@@ -399,7 +461,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
                       {t.pointsUnit})
                     </div>
                     <div className="text-[11px] text-slate-600">
-                      {!hasEnoughPoints
+                      {isFullCarMode
+                        ? t.booking.fullCarCannotRedeemPoints
+                        : !hasEnoughPoints
                         ? t.booking.insufficientPoints
                         : !withinFreeCap
                         ? `${t.booking.exceedsMaxFreeValue} (${formatIqd(settings.maxFreeTripValueIqd)})`
@@ -412,41 +476,43 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
               </div>
             </div>
 
-            {/* Optional Round Trip Selector */}
-            <div className="pt-2 border-t border-slate-100 space-y-2">
-              <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={roundTripEnabled}
-                  onChange={(e) => setRoundTripEnabled(e.target.checked)}
-                  className="rounded border-slate-300 text-[#0770E3]"
-                />
-                <Repeat className="w-4 h-4 text-[#0770E3]" />
-                <span>{t.booking.roundTripLabel}</span>
-              </label>
+            {/* Optional Round Trip Selector (Per-Seat Bookings Only) */}
+            {!isFullCarMode && (
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={roundTripEnabled}
+                    onChange={(e) => setRoundTripEnabled(e.target.checked)}
+                    className="rounded border-slate-300 text-[#0770E3]"
+                  />
+                  <Repeat className="w-4 h-4 text-[#0770E3]" />
+                  <span>{t.booking.roundTripLabel}</span>
+                </label>
 
-              {roundTripEnabled && (
-                <div>
-                  {returnOptions.length === 0 ? (
-                    <p className="text-xs text-slate-500">{t.booking.noReturnTrips}</p>
-                  ) : (
-                    <select
-                      value={returnTripId}
-                      onChange={(e) => setReturnTripId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl bg-white"
-                    >
-                      <option value="">{t.booking.selectReturnTrip}</option>
-                      {returnOptions.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.departureDate} · {r.departureTime} · {r.driverName} ·{' '}
-                          {formatIqd(r.pricePerSeatIqd)}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              )}
-            </div>
+                {roundTripEnabled && (
+                  <div>
+                    {returnOptions.length === 0 ? (
+                      <p className="text-xs text-slate-500">{t.booking.noReturnTrips}</p>
+                    ) : (
+                      <select
+                        value={returnTripId}
+                        onChange={(e) => setReturnTripId(e.target.value)}
+                        className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl bg-white"
+                      >
+                        <option value="">{t.booking.selectReturnTrip}</option>
+                        {returnOptions.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.departureDate} · {r.departureTime} · {r.driverName} ·{' '}
+                            {formatIqd(r.pricePerSeatIqd)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Notes */}
             <div>
@@ -467,7 +533,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-sm">
               <div className="flex items-center justify-between text-xs text-slate-600">
                 <span>
-                  {t.booking.seatsSubtotalLabel} ({seatsCount})
+                  {isFullCarMode
+                    ? `${t.booking.fullCarFareLabel} (${tripCapacity} ${t.tripCard.seatsUnit})`
+                    : `${t.booking.seatsSubtotalLabel} (${seatsCount})`}
                 </span>
                 <span className="font-bold font-mono tabular-nums text-slate-900">
                   {redeemFreeTrip ? formatIqd(0) : formatIqd(seatsSubtotalIqd)}
@@ -524,10 +592,19 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
               </button>
               <button
                 type="submit"
-                disabled={!isPassengerApproved || submitting || selectedSeats.length === 0}
+                disabled={
+                  !isPassengerApproved ||
+                  submitting ||
+                  selectedSeats.length === 0 ||
+                  (isFullCarMode && (!isCompletelyEmpty || !hasValidFullCarPrice))
+                }
                 className="px-5 py-2.5 text-sm font-semibold text-white bg-[#0770E3] rounded-lg hover:bg-[#0559B8] disabled:opacity-60 cursor-pointer transition-colors"
               >
-                {submitting ? t.auth.submitting : t.booking.confirmRequest}
+                {submitting
+                  ? t.auth.submitting
+                  : isFullCarMode
+                  ? t.tripCard.bookFullCar
+                  : t.booking.confirmRequest}
               </button>
             </div>
           </form>
