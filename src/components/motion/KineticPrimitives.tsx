@@ -243,3 +243,38 @@ export const AnimatedModalShell: React.FC<ModalBackdropProps> = ({
     </AnimatePresence>
   );
 };
+
+interface RevealProps {
+  children: React.ReactNode;
+  delay?: number;
+  className?: string;
+}
+
+export const HeroReveal: React.FC<RevealProps> = ({ children, delay = 0, className = '' }) => {
+  const prefersReduced = useReducedMotion();
+  return (
+    <motion.div
+      initial={prefersReduced ? false : { opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.36, delay, ease: SETTLE_EASE }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+};
+
+export const SectionReveal: React.FC<RevealProps> = ({ children, delay = 0, className = '' }) => {
+  const prefersReduced = useReducedMotion();
+  return (
+    <motion.div
+      initial={prefersReduced ? false : { opacity: 0, y: 14 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.12 }}
+      transition={{ duration: 0.34, delay, ease: SETTLE_EASE }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+};

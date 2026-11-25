@@ -7,12 +7,12 @@ import {
   CheckCircle2,
   Clock,
   MapPin,
-  RotateCcw,
+  Package,
   Star,
   Users,
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
-import type { Garage, Governorate, Trip } from '../types/domain';
+import { getTripMaxSeatPrice, getTripMinSeatPrice, type Garage, type Governorate, type Trip } from '../types/domain';
 
 interface TripCardProps {
   trip: Trip;
@@ -21,7 +21,6 @@ interface TripCardProps {
   currentUserId?: string;
   onBook: (trip: Trip) => void;
   onSeatAlert: (trip: Trip) => Promise<void>;
-  onResetDemo?: () => void;
 }
 
 export const TripCard: React.FC<TripCardProps> = ({
@@ -30,7 +29,6 @@ export const TripCard: React.FC<TripCardProps> = ({
   currentUserId,
   onBook,
   onSeatAlert,
-  onResetDemo,
 }) => {
   const { dir, getLocalizedName, formatIqd, t } = useI18n();
   const [alertSaved, setAlertSaved] = useState(false);
@@ -41,6 +39,9 @@ export const TripCard: React.FC<TripCardProps> = ({
   const isOwnTrip = currentUserId === trip.driverId;
   const isFull = trip.availableSeats <= 0;
   const RouteArrow = dir === 'rtl' ? ArrowLeft : ArrowRight;
+  const minSeatPrice = getTripMinSeatPrice(trip);
+  const maxSeatPrice = getTripMaxSeatPrice(trip);
+  const hasVariedSeatPrices = maxSeatPrice > minSeatPrice;
 
   const handleAlert = async () => {
     await onSeatAlert(trip);
@@ -48,23 +49,12 @@ export const TripCard: React.FC<TripCardProps> = ({
   };
 
   return (
-    <article
-      className={`bg-white rounded-[12px] p-5 transition-colors flex flex-col sm:flex-row justify-between gap-5 ${
-        trip.isSampleDemo
-          ? 'border border-[#0770E3]/45 hover:border-[#0770E3] ring-1 ring-[#0770E3]/10'
-          : 'border border-[#E0E4E8] hover:border-[#94A3B8]'
-      }`}
-    >
+    <article className="surface-card surface-card-interactive bg-white rounded-[12px] border-[#E0E4E8] p-5 flex flex-col sm:flex-row justify-between gap-5">
       {/* Start Column: Route Title, Variant/Driver, Specs Row, Benefit Badge */}
       <div className="flex-1 min-w-0 flex flex-col justify-between gap-3.5">
         <div className="space-y-2.5">
           {/* Date & Time Kicker */}
           <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
-            {trip.isSampleDemo && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#05203C] text-white text-[11px] font-bold">
-                {t.tripCard.demoBadge}
-              </span>
-            )}
             <span className="font-semibold text-[#05203C] tabular-nums">{trip.departureDate}</span>
             <span aria-hidden="true">·</span>
             <span className="font-mono font-semibold text-[#0770E3] tabular-nums">
@@ -100,7 +90,7 @@ export const TripCard: React.FC<TripCardProps> = ({
               <span aria-hidden="true">·</span>
               <span className="inline-flex items-center gap-1 font-semibold text-[#05203C] tabular-nums">
                 <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                {(trip.driverRating || 5).toFixed(1)}
+                {(trip.driverRating || 0) > 0 ? trip.driverRating!.toFixed(1) : t.tripCard.unratedDriver}
               </span>
             </div>
           </div>
@@ -143,21 +133,19 @@ export const TripCard: React.FC<TripCardProps> = ({
           <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-[#EFF6FF] text-[#0770E3] text-xs font-semibold">
             {t.tripCard.cashOnBoard}
           </span>
+          {trip.cargoEnabled && Number(trip.cargoPriceIqd || 0) > 0 && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
+              <Package className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+              <span>
+                {t.booking.cargoAvailableBadge} ({formatIqd(Number(trip.cargoPriceIqd || 0))})
+              </span>
+            </span>
+          )}
           {trip.driverVerified && (
             <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-[#F7F9FB] border border-[#E0E4E8] text-[#05203C] text-xs font-medium">
               {t.tripCard.verifiedDriver} · {trip.driverCompletedTrips || 0}{' '}
               {t.tripCard.completedTrips}
             </span>
-          )}
-          {trip.isSampleDemo && onResetDemo && (trip.bookedSeats?.length || 0) > 1 && (
-            <button
-              type="button"
-              onClick={onResetDemo}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-[#CBD5E1] text-[#05203C] hover:border-[#0770E3] hover:text-[#0770E3] text-xs font-semibold cursor-pointer transition-colors"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>{t.tripCard.resetDemo}</span>
-            </button>
           )}
         </div>
       </div>
@@ -190,36 +178,31 @@ export const TripCard: React.FC<TripCardProps> = ({
           <div>
             {trip.isSpecialOffer &&
             trip.originalPriceIqd &&
-            trip.originalPriceIqd > trip.pricePerSeatIqd ? (
+            trip.originalPriceIqd > minSeatPrice ? (
               <div className="text-xs text-slate-400 line-through font-mono tabular-nums">
                 {formatIqd(trip.originalPriceIqd)}
               </div>
             ) : null}
             <div className="text-xl font-bold text-[#05203C] font-mono tabular-nums leading-tight">
-              {formatIqd(trip.pricePerSeatIqd)}
+              {hasVariedSeatPrices
+                ? `${minSeatPrice.toLocaleString('en-US')}–${maxSeatPrice.toLocaleString('en-US')} ${t.currency}`
+                : formatIqd(minSeatPrice)}
             </div>
-            <div className="text-[11px] text-slate-500">{t.tripCard.perSeat}</div>
+            <div className="text-[11px] text-slate-500">
+              {hasVariedSeatPrices ? t.booking.seatPriceRangeHint : t.tripCard.perSeat}
+            </div>
           </div>
 
           {isOwnTrip ? (
             <span className="inline-block text-xs font-medium text-slate-500 px-3 py-1.5 border border-[#E0E4E8] rounded-lg whitespace-nowrap">
               {t.tripCard.ownTrip}
             </span>
-          ) : isFull && trip.isSampleDemo && onResetDemo ? (
-            <button
-              type="button"
-              onClick={onResetDemo}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border border-[#0770E3] text-[#0770E3] rounded-lg hover:bg-[#EFF6FF] whitespace-nowrap cursor-pointer transition-colors"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>{t.tripCard.resetDemo}</span>
-            </button>
           ) : isFull ? (
             <button
               type="button"
               onClick={handleAlert}
               disabled={alertSaved}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border border-[#CBD5E1] text-[#05203C] rounded-lg hover:border-[#05203C] disabled:opacity-60 whitespace-nowrap cursor-pointer transition-colors"
+              className="btn-tactile inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border border-[#CBD5E1] text-[#05203C] rounded-lg hover:border-[#05203C] disabled:opacity-60 whitespace-nowrap cursor-pointer transition-colors"
             >
               <Bell className="w-3.5 h-3.5" />
               <span>{alertSaved ? t.tripCard.alertSubscribed : t.tripCard.notifySeat}</span>
@@ -228,7 +211,7 @@ export const TripCard: React.FC<TripCardProps> = ({
             <button
               type="button"
               onClick={() => onBook(trip)}
-              className="w-full sm:w-auto px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#0770E3] rounded-lg hover:bg-[#0559B8] transition-colors whitespace-nowrap cursor-pointer"
+              className="btn-tactile w-full sm:w-auto px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#0770E3] rounded-lg hover:bg-[#0559B8] transition-colors whitespace-nowrap cursor-pointer"
             >
               {t.tripCard.bookSeat}
             </button>

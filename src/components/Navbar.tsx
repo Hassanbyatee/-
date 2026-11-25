@@ -18,7 +18,7 @@ export type AppView =
 interface NavbarProps {
   currentView: AppView;
   onNavigate: (view: AppView, sectionId?: string) => void;
-  onOpenAuth: () => void;
+  onOpenAuth: (role?: 'passenger' | 'driver') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenAuth }) => {
@@ -29,11 +29,12 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
-  const dashboardTarget: AppView = isAdmin
-    ? 'admin'
-    : userProfile?.role === 'driver'
-    ? 'driver'
-    : 'passenger';
+  const dashboardTarget: AppView =
+    userProfile?.role === 'driver'
+      ? 'driver'
+      : isAdmin
+      ? 'admin'
+      : 'passenger';
 
   const displayName =
     userProfile?.displayName ||
@@ -41,11 +42,12 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
     firebaseUser?.email?.split('@')[0] ||
     '';
 
-  const roleLabel = isAdmin
-    ? t.roles.admin
-    : userProfile?.role === 'driver'
-    ? t.roles.driver
-    : t.roles.passenger;
+  const roleLabel =
+    userProfile?.role === 'driver'
+      ? t.roles.driver
+      : isAdmin
+      ? t.roles.admin
+      : t.roles.passenger;
 
   const verificationStatus: VerificationStatus = isAdmin
     ? 'approved'
@@ -173,7 +175,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                 <button
                   type="button"
                   onClick={() => handleNavClick(dashboardTarget)}
-                  className="px-3.5 py-2 text-xs font-semibold text-white bg-[#0770E3] rounded-lg hover:bg-[#0559B8] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="btn-tactile px-3.5 py-2 text-xs font-semibold text-white bg-[#0770E3] rounded-lg hover:bg-[#0559B8] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   {t.nav.dashboard}
                   {unreadCount > 0 ? ` (${unreadCount})` : ''}
@@ -183,7 +185,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
               <button
                 type="button"
                 onClick={() => logout()}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white border border-white/25 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="btn-tactile inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white border border-white/25 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 <span>{t.nav.signOut}</span>
@@ -192,8 +194,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
           ) : (
             <button
               type="button"
-              onClick={onOpenAuth}
-              className="hidden md:inline-flex px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#0770E3] rounded-lg hover:bg-[#0559B8] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              onClick={() => onOpenAuth()}
+              className="btn-tactile hidden md:inline-flex px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#0770E3] rounded-lg hover:bg-[#0559B8] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {t.nav.signIn}
             </button>
@@ -221,11 +223,11 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             className="lg:hidden border-t border-white/15 bg-[#05203C] px-5 py-5 shadow-lg"
           >
-            <nav className="flex flex-col space-y-1.5" aria-label={t.common.menu}>
+            <nav className="flex flex-col space-y-1" aria-label={t.common.menu}>
               <button
                 type="button"
                 onClick={() => handleNavClick('home', 'available-trips')}
-                className={`w-full text-start px-4 py-3 text-[15px] font-medium rounded-xl transition-colors cursor-pointer ${
+                className={`w-full text-start px-3.5 py-2.5 text-[15px] font-medium rounded-xl transition-colors cursor-pointer ${
                   currentView === 'home'
                     ? 'bg-white/10 text-white font-semibold'
                     : 'text-white/90 hover:bg-white/10 hover:text-white active:bg-white/15'
@@ -236,28 +238,21 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
               <button
                 type="button"
                 onClick={() => handleNavClick('home', 'destinations')}
-                className="w-full text-start px-4 py-3 text-[15px] font-medium text-white/90 rounded-xl hover:bg-white/10 hover:text-white active:bg-white/15 transition-colors cursor-pointer"
+                className="w-full text-start px-3.5 py-2.5 text-[15px] font-medium text-white/90 rounded-xl hover:bg-white/10 hover:text-white active:bg-white/15 transition-colors cursor-pointer"
               >
                 {t.nav.destinations}
               </button>
               <button
                 type="button"
                 onClick={() => handleNavClick('home', 'loyalty-section')}
-                className="w-full text-start px-4 py-3 text-[15px] font-medium text-white/90 rounded-xl hover:bg-white/10 hover:text-white active:bg-white/15 transition-colors cursor-pointer"
+                className="w-full text-start px-3.5 py-2.5 text-[15px] font-medium text-white/90 rounded-xl hover:bg-white/10 hover:text-white active:bg-white/15 transition-colors cursor-pointer"
               >
                 {t.nav.loyalty}
               </button>
               <button
                 type="button"
-                onClick={() => handleNavClick('home', 'become-driver')}
-                className="w-full text-start px-4 py-3 text-[15px] font-medium text-white/90 rounded-xl hover:bg-white/10 hover:text-white active:bg-white/15 transition-colors cursor-pointer"
-              >
-                {t.nav.becomeDriver}
-              </button>
-              <button
-                type="button"
                 onClick={() => handleNavClick('contact')}
-                className={`w-full text-start px-4 py-3 text-[15px] font-medium rounded-xl transition-colors cursor-pointer ${
+                className={`w-full text-start px-3.5 py-2.5 text-[15px] font-medium rounded-xl transition-colors cursor-pointer ${
                   currentView === 'contact'
                     ? 'bg-white/10 text-white font-semibold'
                     : 'text-white/90 hover:bg-white/10 hover:text-white active:bg-white/15'
@@ -316,16 +311,40 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                   </button>
                 </>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    onOpenAuth();
-                  }}
-                  className="w-full py-3 px-4 text-sm font-semibold text-white bg-[#0770E3] hover:bg-[#0559B8] rounded-xl transition-colors cursor-pointer text-center"
-                >
-                  {t.nav.signIn}
-                </button>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        onOpenAuth('passenger');
+                      }}
+                      className="btn-tactile py-2 px-3 text-xs font-semibold text-white/95 bg-white/10 hover:bg-white/15 border border-white/20 rounded-xl transition-colors cursor-pointer text-center whitespace-nowrap"
+                    >
+                      {t.nav.joinAsPassenger}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        onOpenAuth('driver');
+                      }}
+                      className="btn-tactile py-2 px-3 text-xs font-semibold text-white/95 bg-white/10 hover:bg-white/15 border border-white/20 rounded-xl transition-colors cursor-pointer text-center whitespace-nowrap"
+                    >
+                      {t.nav.joinAsDriver}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onOpenAuth();
+                    }}
+                    className="btn-tactile w-full py-3 px-4 text-sm font-semibold text-white bg-[#0770E3] hover:bg-[#0559B8] rounded-xl transition-colors cursor-pointer text-center"
+                  >
+                    {t.nav.signIn}
+                  </button>
+                </div>
               )}
             </div>
           </motion.div>

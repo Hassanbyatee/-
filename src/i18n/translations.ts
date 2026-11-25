@@ -19,6 +19,8 @@ export interface TranslationDictionary {
     signIn: string;
     signOut: string;
     register: string;
+    joinAsPassenger: string;
+    joinAsDriver: string;
   };
 
   hero: {
@@ -159,6 +161,8 @@ export interface TranslationDictionary {
     footerDriverTitle: string;
     footerPlatformNote: string;
     startingFrom: string;
+    noFareDataYet: string;
+    noRoutesYetShort: string;
   };
 
   tripCard: {
@@ -177,8 +181,7 @@ export interface TranslationDictionary {
     homePickupLabel: string;
     durationMins: string;
     ownTrip: string;
-    demoBadge: string;
-    resetDemo: string;
+    unratedDriver: string;
   };
 
   auth: {
@@ -254,6 +257,13 @@ export interface TranslationDictionary {
     hasAccountPrompt: string;
     createAccountBtn: string;
     noOtpNote: string;
+    checkingAccount: string;
+    pendingApprovalBannerTitle: string;
+    pendingApprovalBannerDesc: string;
+    verifiedPassengerBadge: string;
+    resubmitDocsTitle: string;
+    resubmitDocsBtn: string;
+    docsResubmitted: string;
   };
 
   booking: {
@@ -292,7 +302,6 @@ export interface TranslationDictionary {
     selectedSeatsLabel: string;
     selectAtLeastOneSeat: string;
     seatAlreadyBooked: string;
-    demoRequestSent: string;
     dropOffTitle: string;
     standardDropOffLabel: string;
     standardDropOffDesc: string;
@@ -310,6 +319,15 @@ export interface TranslationDictionary {
     customDropOffMissingCoords: string;
     openDriverNavLink: string;
     customDropOffBadge: string;
+    seatsSubtotalLabel: string;
+    cargoOptionTitle: string;
+    cargoOptionDesc: string;
+    cargoAddLabel: string;
+    cargoFeeLabel: string;
+    cargoNotesPlaceholder: string;
+    cargoBadge: string;
+    cargoAvailableBadge: string;
+    seatPriceRangeHint: string;
   };
 
   statuses: {
@@ -437,6 +455,27 @@ export interface TranslationDictionary {
     savedSuccess: string;
     noRequests: string;
     noTrips: string;
+    addNewTripBtn: string;
+    departureDateTimeLabel: string;
+    pickupNotesLabel: string;
+    pickupNotesPlaceholder: string;
+    autoAttachedInfoTitle: string;
+    fourCabinSeatsReady: string;
+    deleteTrip: string;
+    confirmDeleteTrip: string;
+    tripBookingsTitle: string;
+    noTripBookings: string;
+    cabinSeatsOverview: string;
+    perSeatPricingTitle: string;
+    applyToAllSeats: string;
+    baseSeatPrice: string;
+    seatPriceShort: string;
+    cargoShippingTitle: string;
+    enableCargoTransport: string;
+    cargoPriceLabel: string;
+    editTripBtn: string;
+    saveTripChangesBtn: string;
+    tripUpdatedSuccess: string;
   };
 
   admin: {
@@ -496,6 +535,27 @@ export interface TranslationDictionary {
     publishReview: string;
     updateComplaint: string;
     adminNotesPlaceholder: string;
+    adminAccessBtn: string;
+    adminCodeModalTitle: string;
+    adminCodeModalDesc: string;
+    adminCodeLabel: string;
+    adminCodePlaceholder: string;
+    adminCodeSubmit: string;
+    adminCodeInvalid: string;
+    adminAuthRequired: string;
+    adminNotAuthorizedEmail: string;
+    signInAsAdminGoogle: string;
+    bookingsWithGpsTitle: string;
+    driverTripsModerationTitle: string;
+    selectedSeatsCol: string;
+    gpsDropOffCol: string;
+    standardGarageDropOff: string;
+    deleteTripConfirm: string;
+    adminCodeUnlockedNotice: string;
+    adminOptionalSignInHint: string;
+    cargoCol: string;
+    pendingUsersCount: string;
+    emptyList: string;
   };
 
   map: {
@@ -579,6 +639,7 @@ export interface TranslationDictionary {
     insufficientSeats: string;
     sameGovernorate: string;
     unapprovedDriver: string;
+    unapprovedUser: string;
     cancellationTooLate: string;
     locationDenied: string;
     duplicateBooking: string;
@@ -590,6 +651,7 @@ export interface TranslationDictionary {
     authPopupClosed: string;
     storageUnauthorized: string;
     invalidImageFile: string;
+    cannotDeleteTripWithBookings: string;
   };
 }
 
@@ -613,6 +675,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       signIn: 'تسجيل الدخول',
       signOut: 'تسجيل الخروج',
       register: 'إنشاء حساب',
+      joinAsPassenger: 'انضم كمسافر',
+      joinAsDriver: 'انضم كسائق',
     },
 
     hero: {
@@ -771,6 +835,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       footerDriverTitle: 'الشركاء والسائقون',
       footerPlatformNote: 'العراق · العملة المعتمدة: الدينار العراقي (IQD)',
       startingFrom: 'ابتداءً من',
+      noFareDataYet: 'لا توجد بيانات أسعار منشورة بعد — ستظهر متوسطات الأسعار تلقائياً فور نشر السائقين لرحلاتهم.',
+      noRoutesYetShort: 'بانتظار نشر رحلات',
     },
 
     tripCard: {
@@ -789,8 +855,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       homePickupLabel: 'استلام من المنزل أو نقطة الاتفاق',
       durationMins: 'دقيقة تقريباً',
       ownTrip: 'رحلتك',
-      demoBadge: 'رحلة تجريبية',
-      resetDemo: 'إعادة ضبط المقاعد',
+      unratedDriver: 'جديد',
     },
 
     auth: {
@@ -866,6 +931,13 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       hasAccountPrompt: 'لديك حساب بالفعل؟',
       createAccountBtn: 'إنشاء الحساب',
       noOtpNote: 'يُستخدم للتنسيق المباشر مع السائق أو المسافر دون حاجة لرمز تحقق SMS.',
+      checkingAccount: 'جاري التحقق من حالة الحساب...',
+      pendingApprovalBannerTitle: 'حسابك قيد المراجعة / بانتظار موافقة الإدارة',
+      pendingApprovalBannerDesc: 'تم استلام وثائقك بنجاح. سيتم تفعيل كامل صلاحيات الحجز أو النشر فور اعتماد الحساب من الإدارة.',
+      verifiedPassengerBadge: 'حساب مسافر موثّق ومعتمد',
+      resubmitDocsTitle: 'إعادة رفع وثائق التوثيق للمراجعة',
+      resubmitDocsBtn: 'إرسال الوثائق المحدّثة للمراجعة',
+      docsResubmitted: 'تم إعادة إرسال الوثائق وحالة الحساب الآن قيد المراجعة الإدارية.',
     },
 
     booking: {
@@ -904,7 +976,6 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       selectedSeatsLabel: 'المقاعد المختارة',
       selectAtLeastOneSeat: 'اختر مقعداً واحداً على الأقل من المخطط أعلاه.',
       seatAlreadyBooked: 'أحد المقاعد المختارة تم حجزه للتو، يرجى اختيار مقعد آخر.',
-      demoRequestSent: 'تم إرسال طلب الحجز التجريبي بنجاح وتحديث المقاعد المحجوزة في السيارة.',
       dropOffTitle: 'موقع النزول عند الوصول',
       standardDropOffLabel: 'توصيل اعتيادي (ضمن المسار)',
       standardDropOffDesc: 'النزول في نقطة الوصول المعتادة أو المتفق عليها دون رسوم إضافية.',
@@ -922,6 +993,15 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       customDropOffMissingCoords: 'يرجى تحديد موقع النزول على الخريطة أولاً.',
       openDriverNavLink: 'فتح مسار التوصيل (خرائط Google)',
       customDropOffBadge: 'توصيل لموقع مخصص',
+      seatsSubtotalLabel: 'مجموع المقاعد المختارة',
+      cargoOptionTitle: 'شحن بضائع / طرود مع الكابتن',
+      cargoOptionDesc: 'أضف طرداً أو أمانة للشحن مع هذه الرحلة بالتسعيرة المحددة من الكابتن.',
+      cargoAddLabel: 'إضافة شحن بضاعة / طرد لهذه الرحلة',
+      cargoFeeLabel: 'أجرة نقل البضاعة / الطرد',
+      cargoNotesPlaceholder: 'وصف الطرد أو البضاعة (مثال: حقيبة متوسطة، مستندات، علبة هدايا...)',
+      cargoBadge: 'مع شحن طرد',
+      cargoAvailableBadge: 'شحن طرود متاح',
+      seatPriceRangeHint: 'حسب المقعد المختار',
     },
 
     statuses: {
@@ -1027,9 +1107,9 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       cancelTrip: 'إلغاء الرحلة',
       shareLiveLocation: 'مشاركة الموقع المباشر',
       stopLiveLocation: 'إيقاف الموقع المباشر',
-      publishTripTitle: 'إنشاء ونشر رحلة جديدة',
+      publishTripTitle: 'إضافة رحلة جديدة',
       departureGov: 'محافظة الانطلاق',
-      destinationGov: 'محافظة الوصول',
+      destinationGov: 'محافظة الوجهة',
       departureGarage: 'كراج الانطلاق',
       destinationGarage: 'كراج الوصول',
       departureDate: 'تاريخ الانطلاق',
@@ -1038,8 +1118,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       originalPriceOptional: 'السعر قبل الخصم (اختياري للعرض الخاص)',
       seatsToOffer: 'عدد المقاعد المتاحة',
       estimatedDuration: 'المدة المقدرة (بالدقائق)',
-      tripNotes: 'ملاحظات الرحلة للركاب',
-      publishTripBtn: 'نشر الرحلة للركاب',
+      tripNotes: 'ملاحظات الانطلاق / التوصيل (اختياري)',
+      publishTripBtn: 'نشر الرحلة الآن',
       editTripLockedNotice: 'يُمنع تعديل السعر أو المسار بعد تأكيد حجوزات الركاب.',
       totalEarningsGross: 'إجمالي الأجرة المحصلة',
       platformCommission: 'عمولة المنصة',
@@ -1049,6 +1129,27 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       savedSuccess: 'تم حفظ البيانات بنجاح.',
       noRequests: 'لا توجد طلبات حجز حالياً.',
       noTrips: 'لم تنشر أي رحلات بعد.',
+      addNewTripBtn: 'إضافة رحلة جديدة',
+      departureDateTimeLabel: 'موعد الانطلاق',
+      pickupNotesLabel: 'ملاحظات الانطلاق / التوصيل (اختياري)',
+      pickupNotesPlaceholder: 'مثال: الانطلاق من المنصور والكرادة، استلام من البيت حسب الاتفاق...',
+      autoAttachedInfoTitle: 'بيانات السائق والمركبة المرفقة تلقائياً',
+      fourCabinSeatsReady: 'سيتم تهيئة جميع المقاعد الأربعة (4/4 متاحة) لاختيار الركاب مباشرة.',
+      deleteTrip: 'حذف الرحلة',
+      confirmDeleteTrip: 'تأكيد الحذف',
+      tripBookingsTitle: 'الحجوزات الواردة ومواقع التوصيل',
+      noTripBookings: 'لا توجد حجوزات واردة على هذه الرحلة بعد.',
+      cabinSeatsOverview: 'حالة المقاعد الأربعة',
+      perSeatPricingTitle: 'تسعير كل مقعد على حدة (د.ع)',
+      applyToAllSeats: 'تطبيق على كل المقاعد',
+      baseSeatPrice: 'سعر افتراضي سريع',
+      seatPriceShort: 'سعر المقعد',
+      cargoShippingTitle: 'خيار نقل البضائع والطرود',
+      enableCargoTransport: 'إتاحة نقل البضائع / الطرود على هذه الرحلة',
+      cargoPriceLabel: 'أجرة شحن البضاعة / الطرد (د.ع)',
+      editTripBtn: 'تعديل الرحلة والأسعار',
+      saveTripChangesBtn: 'حفظ تعديلات الرحلة',
+      tripUpdatedSuccess: 'تم تحديث تفاصيل وأسعار الرحلة بنجاح.',
     },
 
     admin: {
@@ -1108,6 +1209,27 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       publishReview: 'إظهار التقييم',
       updateComplaint: 'حفظ حالة البلاغ',
       adminNotesPlaceholder: 'ملاحظات الإدارة...',
+      adminAccessBtn: 'كود الأدمن',
+      adminCodeModalTitle: 'دخول لوحة الإدارة',
+      adminCodeModalDesc: 'أدخل رمز الإدارة السري (2006) للدخول المباشر إلى لوحة التوثيق ومتابعة الحجوزات.',
+      adminCodeLabel: 'كود الأدمن السري',
+      adminCodePlaceholder: 'أدخل الرمز',
+      adminCodeSubmit: 'فتح لوحة الإدارة',
+      adminCodeInvalid: 'رمز الإدارة غير صحيح. تأكد من الرمز وحاول مجدداً.',
+      adminAuthRequired: 'يرجى تسجيل الدخول عبر Google لمزامنة السجلات الكاملة من قاعدة البيانات.',
+      adminNotAuthorizedEmail: 'تعذر التحقق من الجلسة الإدارية.',
+      signInAsAdminGoogle: 'تسجيل الدخول عبر Google لمزامنة السجلات',
+      bookingsWithGpsTitle: 'سجل الحجوزات والمقاعد وتوصيل GPS (+10,000 د.ع)',
+      driverTripsModerationTitle: 'الرحلات المنشورة من السائقين',
+      selectedSeatsCol: 'المقاعد المختارة',
+      gpsDropOffCol: 'التوصيل المخصص (GPS)',
+      standardGarageDropOff: 'توصيل اعتيادي (ضمن المسار)',
+      deleteTripConfirm: 'تأكيد حذف الرحلة',
+      adminCodeUnlockedNotice: 'تم فتح لوحة الإدارة مباشرة بكود الأدمن (2006).',
+      adminOptionalSignInHint: 'يمكنك تصفح اللوحة الآن، أو تسجيل الدخول بأي حساب Google لمزامنة وإدارة كل سجلات Firestore الحية.',
+      cargoCol: 'البضائع / الطرود',
+      pendingUsersCount: 'مسافرون ومستخدمون بانتظار الاعتماد',
+      emptyList: 'لا توجد سجلات حية حالياً.',
     },
 
     map: {
@@ -1204,6 +1326,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       insufficientSeats: 'عذراً، عدد المقاعد المتبقية غير كافٍ.',
       sameGovernorate: 'يجب أن تختلف محافظة الوصول عن محافظة الانطلاق.',
       unapprovedDriver: 'يجب موافقة الإدارة على حساب السائق أولاً.',
+      unapprovedUser: 'حسابك قيد المراجعة / بانتظار موافقة الإدارة. لا يمكن إتمام الحجز قبل اعتماد الإدارة.',
       cancellationTooLate: 'انتهت المهلة المسموحة لإلغاء الحجز قبل موعد الانطلاق.',
       locationDenied: 'تعذر الوصول للموقع الجغرافي. تحقق من أذونات المتصفح.',
       duplicateBooking: 'لديك حجز نشط مسبقاً على هذه الرحلة.',
@@ -1215,6 +1338,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       authPopupClosed: 'تم إغلاق نافذة Google قبل إتمام تسجيل الدخول.',
       storageUnauthorized: 'تعذر رفع الصور إلى Firebase Storage. تحقق من أذونات قواعد التخزين.',
       invalidImageFile: 'يرجى اختيار ملف صورة صالح (JPG أو PNG).',
+      cannotDeleteTripWithBookings: 'لا يمكن حذف رحلة تحتوي على حجوزات مؤكدة. يمكنك إلغاء الحجوزات أولاً.',
     },
   },
 
@@ -1237,6 +1361,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       signIn: 'چوونەژوورەوە',
       signOut: 'چوونەدەرەوە',
       register: 'تۆمارکردن',
+      joinAsPassenger: 'وەک گەشتیار بەشداربە',
+      joinAsDriver: 'وەک شۆفێر بەشداربە',
     },
 
     hero: {
@@ -1395,6 +1521,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       footerDriverTitle: 'هاوبەش و شۆفێران',
       footerPlatformNote: 'عێراق · دراوی فەرمی: دیناری عێراقی (IQD)',
       startingFrom: 'دەستپێکردن لە',
+      noFareDataYet: 'هێشتا داتای نرخ نییە — تێکڕای نرخەکان بە خۆکار دەردەکەون کاتێک شۆفێران گەشت بڵاودەکەنەوە.',
+      noRoutesYetShort: 'چاوەڕوانی گەشتە',
     },
 
     tripCard: {
@@ -1413,8 +1541,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       homePickupLabel: 'وەرگرتن لە ماڵەوە یان شوێنی ڕێککەوتن',
       durationMins: 'خولەک',
       ownTrip: 'گەشتی خۆتە',
-      demoBadge: 'گەشتی تاقیکردنەوە',
-      resetDemo: 'ڕێکخستنەوەی کورسییەکان',
+      unratedDriver: 'نوێ',
     },
 
     auth: {
@@ -1490,6 +1617,13 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       hasAccountPrompt: 'پێشتر هەژمارت هەیە؟',
       createAccountBtn: 'دروستکردنی هەژمار',
       noOtpNote: 'تەنها بۆ پەیوەندیکردنی ڕاستەوخۆ بەکاردێت بەبێ کۆدی SMS.',
+      checkingAccount: 'پشکنینی دۆخی هەژمار...',
+      pendingApprovalBannerTitle: 'هەژمارەکەت لەژێر پێداچوونەوەدایە / چاوەڕوانی پەسەندکردنی کارگێڕییە',
+      pendingApprovalBannerDesc: 'بەڵگەنامەکانت وەرگیران. دوای پەسەندکردنی کارگێڕی دەتوانیت حجز بکەیت یان گەشت بڵاوبکەیتەوە.',
+      verifiedPassengerBadge: 'هەژماری گەشتیاری پەسەندکراو',
+      resubmitDocsTitle: 'دووبارە ناردنی بەڵگەنامەکان بۆ پێداچوونەوە',
+      resubmitDocsBtn: 'ناردنی بەڵگەنامە نوێکراوەکان',
+      docsResubmitted: 'بەڵگەنامەکان نێردرانەوە و ئێستا لەژێر پێداچوونەوەی کارگێڕیدایە.',
     },
 
     booking: {
@@ -1528,7 +1662,6 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       selectedSeatsLabel: 'کورسییە هەڵبژێردراوەکان',
       selectAtLeastOneSeat: 'تکایە لانیکەم یەک کورسی لە نەخشەکەوە هەڵبژێرە.',
       seatAlreadyBooked: 'یەکێک لە کورسییەکان تازە حجزکرا، تکایە کورسییەکی تر هەڵبژێرە.',
-      demoRequestSent: 'داواکاری حجزکردنی تاقیکردنەوە بە سەرکەوتوویی نێردرا و کورسییەکان نوێکرانەوە.',
       dropOffTitle: 'شوێنی دابەزین لە کاتی گەیشتن',
       standardDropOffLabel: 'گەیاندنی ئاسایی (لەسەر ڕێڕەو)',
       standardDropOffDesc: 'دابەزین لە خاڵی گەیشتنی دیاریکراو بەبێ تێچووی زیادە.',
@@ -1546,6 +1679,15 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       customDropOffMissingCoords: 'تکایە سەرەتا شوێنی دابەزین لەسەر نەخشە دیاری بکە.',
       openDriverNavLink: 'کردنەوەی ئاڕاستەی گەیاندن (Google Maps)',
       customDropOffBadge: 'گەیاندنی تایبەت',
+      seatsSubtotalLabel: 'کۆی کورسییە هەڵبژێردراوەکان',
+      cargoOptionTitle: 'گواستنەوەی کاڵا و پاکێج لەگەڵ شۆفێر',
+      cargoOptionDesc: 'پاکێج یان بار زیاد بکە بۆ ئەم گەشتە بەپێی نرخی دیاریکراوی شۆفێر.',
+      cargoAddLabel: 'زیادکردنی گواستنەوەی کاڵا / پاکێج بۆ ئەم گەشتە',
+      cargoFeeLabel: 'کرێی گواستنەوەی کاڵا / پاکێج',
+      cargoNotesPlaceholder: 'وەسفی پاکێج یان کاڵا (نموونە: جانتای مامناوەند، بەڵگەنامە...)',
+      cargoBadge: 'لەگەڵ پاکێج',
+      cargoAvailableBadge: 'ناردنی پاکێج بەردەستە',
+      seatPriceRangeHint: 'بەپێی کورسی هەڵبژێردراو',
     },
 
     statuses: {
@@ -1673,6 +1815,27 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       savedSuccess: 'زانیارییەکان بە سەرکەوتوویی پاشەکەوتکران.',
       noRequests: 'هیچ داواکارییەکی حجز نییە.',
       noTrips: 'هێشتا هیچ گەشتێکت بڵاونەکردووەتەوە.',
+      addNewTripBtn: 'زیادکردنی گەشتی نوێ',
+      departureDateTimeLabel: 'کاتی دەرچوون',
+      pickupNotesLabel: 'تێبینییەکانی دەرچوون / گەیاندن (ئارەزوومەندانە)',
+      pickupNotesPlaceholder: 'نموونە: دەرچوون لە مەنسوور، وەرگرتن لە ماڵەوە بەپێی ڕێککەوتن...',
+      autoAttachedInfoTitle: 'زانیاری شۆفێر و ئۆتۆمبێل بە شێوەی خۆکار دەبەسترێتەوە',
+      fourCabinSeatsReady: 'هەر ٤ کورسییەکەی ناو ئۆتۆمبێل بە بەتاڵی دادەنرێت بۆ هەڵبژاردنی گەشتیاران.',
+      deleteTrip: 'سڕینەوەی گەشت',
+      confirmDeleteTrip: 'دڵنیاکردنەوەی سڕینەوە',
+      tripBookingsTitle: 'حجزە هاتووەکان و شوێنی گەیاندن',
+      noTripBookings: 'هێشتا هیچ حجزێک بۆ ئەم گەشتە نییە.',
+      cabinSeatsOverview: 'دۆخی ٤ کورسییەکە',
+      perSeatPricingTitle: 'نرخدانان بۆ هەر کورسییەک بە جیا (د.ع)',
+      applyToAllSeats: 'جێبەجێکردن بۆ هەمووان',
+      baseSeatPrice: 'نرخی بنەڕەتی خێرا',
+      seatPriceShort: 'نرخی کورسی',
+      cargoShippingTitle: 'گواستنەوەی کاڵا و پاکێج',
+      enableCargoTransport: 'ڕێگەدان بە گواستنەوەی کاڵا و پاکێج لەم گەشتەدا',
+      cargoPriceLabel: 'کرێی ناردنی کاڵا / پاکێج (د.ع)',
+      editTripBtn: 'دەستکاری گەشت و نرخ',
+      saveTripChangesBtn: 'پاشەکەوتکردنی گۆڕانکارییەکان',
+      tripUpdatedSuccess: 'زانیاری و نرخەکانی گەشت بە سەرکەوتوویی نوێکرانەوە.',
     },
 
     admin: {
@@ -1732,6 +1895,27 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       publishReview: 'پیشاندان',
       updateComplaint: 'نوێکردنەوەی سکاڵا',
       adminNotesPlaceholder: 'تێبینی کارگێڕی...',
+      adminAccessBtn: 'کۆدی ئەدمین',
+      adminCodeModalTitle: 'دەروازەی چوونەژوورەوەی کارگێڕی',
+      adminCodeModalDesc: 'کۆدی نهێنی کارگێڕی (2006) بنووسە بۆ کردنەوەی ڕاستەوخۆی پانێڵی کارگێڕی.',
+      adminCodeLabel: 'کۆدی ئەدمین',
+      adminCodePlaceholder: 'کۆد بنووسە',
+      adminCodeSubmit: 'کردنەوەی پانێڵی کارگێڕی',
+      adminCodeInvalid: 'کۆدی کارگێڕی هەڵەیە. تکایە دووبارە هەوڵبدەرەوە.',
+      adminAuthRequired: 'بە هەژماری Google بچۆ ژوورەوە بۆ هاوکاتکردنی داتا زیندووەکان.',
+      adminNotAuthorizedEmail: 'نەتوانرا پشتڕاستکردنەوەی کارگێڕی بکرێت.',
+      signInAsAdminGoogle: 'چوونەژوورەوە بە Google بۆ هاوکاتکردن',
+      bookingsWithGpsTitle: 'حجزەکان، کورسییەکان و گەیاندنی GPS (+10,000 د.ع)',
+      driverTripsModerationTitle: 'گەشتە بڵاوکراوەکانی شۆفێران',
+      selectedSeatsCol: 'کورسی هەڵبژێردراو',
+      gpsDropOffCol: 'شوێنی دابەزین (GPS)',
+      standardGarageDropOff: 'گەیاندنی ئاسایی (ناو هێڵ)',
+      deleteTripConfirm: 'دڵنیاکردنەوەی سڕینەوە',
+      adminCodeUnlockedNotice: 'پانێڵی کارگێڕی بە سەرکەوتوویی بە کۆدی 2006 کرایەوە.',
+      adminOptionalSignInHint: 'دەتوانیت ئێستا کاربکەیت، یان بە هەر هەژمارێکی Google بچیتە ژوورەوە بۆ بینینی هەموو تۆمارەکانی Firestore.',
+      cargoCol: 'کاڵا / پاکێج',
+      pendingUsersCount: 'بەکارهێنەرانی چاوەڕوانی پەسەندکردن',
+      emptyList: 'هیچ تۆمارێکی زیندوو لە ئێستادا نییە.',
     },
 
     map: {
@@ -1828,6 +2012,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       insufficientSeats: 'ببورە، ژمارەی کورسی پێویست نەماوە.',
       sameGovernorate: 'پارێزگای گەیشتن دەبێت جیاواز بێت لە پارێزگای دەرچوون.',
       unapprovedDriver: 'پێویستە هەژماری شۆفێر پەسەند کرابێت.',
+      unapprovedUser: 'هەژمارەکەت لەژێر پێداچوونەوەدایە / چاوەڕوانی پەسەندکردنی کارگێڕییە. پێش پەسەندکردن ناتوانیت حجز بکەیت.',
       cancellationTooLate: 'کاتی ڕێگەپێدراو بۆ هەڵوەشاندنەوەی حجز تێپەڕیوە.',
       locationDenied: 'دەستگەیشتن بە شوێنی جوگرافی ڕەتکرایەوە.',
       duplicateBooking: 'تۆ پێشتر حجزێکی چالاکت هەیە لەم گەشتەدا.',
@@ -1839,6 +2024,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       authPopupClosed: 'پەنجەرەی Google داخرا پێش تەواوکردن.',
       storageUnauthorized: 'بارکردنی وێنەکان سەرکەوتوو نەبوو بەهۆی دەسەڵاتی Firebase Storage.',
       invalidImageFile: 'تکایە فایلێکی وێنەی دروست هەڵبژێرە (JPG یان PNG).',
+      cannotDeleteTripWithBookings: 'ناتوانرێت گەشتێک بسڕدرێتەوە کە حجزی پەسەندکراوی تێدایە.',
     },
   },
 
@@ -1861,6 +2047,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       signIn: 'Sign In',
       signOut: 'Sign Out',
       register: 'Register',
+      joinAsPassenger: 'Join as Passenger',
+      joinAsDriver: 'Join as Driver',
     },
 
     hero: {
@@ -2019,6 +2207,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       footerDriverTitle: 'Partners & Drivers',
       footerPlatformNote: 'Iraq · Currency: Iraqi Dinar (IQD)',
       startingFrom: 'Starting from',
+      noFareDataYet: 'No live route pricing yet — averages appear automatically once drivers publish trips.',
+      noRoutesYetShort: 'Awaiting trips',
     },
 
     tripCard: {
@@ -2037,8 +2227,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       homePickupLabel: 'Home or agreed pickup',
       durationMins: 'min est.',
       ownTrip: 'Your trip',
-      demoBadge: 'Demo Trip',
-      resetDemo: 'Reset Demo Seats',
+      unratedDriver: 'New',
     },
 
     auth: {
@@ -2114,6 +2303,13 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       hasAccountPrompt: 'Already have an account?',
       createAccountBtn: 'Create Account',
       noOtpNote: 'Used for direct ride coordination with no SMS/OTP verification needed.',
+      checkingAccount: 'Checking account status...',
+      pendingApprovalBannerTitle: 'Account Under Review / Pending Admin Approval',
+      pendingApprovalBannerDesc: 'Your documents were received. Booking and publishing features unlock once an admin approves your account.',
+      verifiedPassengerBadge: 'Verified & Approved Passenger',
+      resubmitDocsTitle: 'Resubmit Verification Documents',
+      resubmitDocsBtn: 'Submit Updated Documents for Review',
+      docsResubmitted: 'Documents resubmitted. Your account status is back under admin review.',
     },
 
     booking: {
@@ -2152,7 +2348,6 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       selectedSeatsLabel: 'Selected Seat(s)',
       selectAtLeastOneSeat: 'Select at least one seat from the cabin diagram above.',
       seatAlreadyBooked: 'One of your selected seats was just booked. Please pick another.',
-      demoRequestSent: 'Test booking submitted! The selected seats are now marked as booked.',
       dropOffTitle: 'Arrival Drop-off Location',
       standardDropOffLabel: 'Standard Drop-off (Included)',
       standardDropOffDesc: 'Drop-off at the standard arrival area with no extra fee.',
@@ -2170,6 +2365,15 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       customDropOffMissingCoords: 'Please select a drop-off pin on the map first.',
       openDriverNavLink: 'Navigate to Drop-off (Google Maps)',
       customDropOffBadge: 'Custom Drop-off',
+      seatsSubtotalLabel: 'Selected Seats Subtotal',
+      cargoOptionTitle: 'Cargo / Parcel Transport',
+      cargoOptionDesc: 'Include a parcel or cargo item on this trip at the captain’s shipping rate.',
+      cargoAddLabel: 'Include cargo / parcel shipping with this booking',
+      cargoFeeLabel: 'Cargo / Parcel Fee',
+      cargoNotesPlaceholder: 'Describe package/cargo (e.g. medium box, documents, gift...)',
+      cargoBadge: 'With Cargo',
+      cargoAvailableBadge: 'Cargo Accepted',
+      seatPriceRangeHint: 'Varies by seat',
     },
 
     statuses: {
@@ -2297,6 +2501,27 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       savedSuccess: 'Saved successfully.',
       noRequests: 'No booking requests yet.',
       noTrips: 'No published trips yet.',
+      addNewTripBtn: 'Add New Trip',
+      departureDateTimeLabel: 'Departure Date & Time',
+      pickupNotesLabel: 'Pickup / Home-Pickup Notes (Optional)',
+      pickupNotesPlaceholder: 'e.g. Departing Al-Mansour, flexible home pickup by agreement...',
+      autoAttachedInfoTitle: 'Auto-Attached Driver & Vehicle Details',
+      fourCabinSeatsReady: 'All 4 passenger cabin seats will be initialized as Available for 3D selection.',
+      deleteTrip: 'Remove Trip',
+      confirmDeleteTrip: 'Confirm Remove',
+      tripBookingsTitle: 'Incoming Bookings & Drop-off Details',
+      noTripBookings: 'No incoming bookings on this trip yet.',
+      cabinSeatsOverview: '4-Seat Cabin Status',
+      perSeatPricingTitle: 'Individual Per-Seat Pricing (IQD)',
+      applyToAllSeats: 'Apply to All Seats',
+      baseSeatPrice: 'Quick Default Price',
+      seatPriceShort: 'Seat Price',
+      cargoShippingTitle: 'Cargo / Parcel Transport Option',
+      enableCargoTransport: 'Allow cargo / parcels on this trip',
+      cargoPriceLabel: 'Cargo / Parcel Fee (IQD)',
+      editTripBtn: 'Edit Trip & Prices',
+      saveTripChangesBtn: 'Save Trip Changes',
+      tripUpdatedSuccess: 'Trip details and pricing updated successfully.',
     },
 
     admin: {
@@ -2356,6 +2581,27 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       publishReview: 'Publish Review',
       updateComplaint: 'Update Ticket',
       adminNotesPlaceholder: 'Admin notes...',
+      adminAccessBtn: 'Admin Code',
+      adminCodeModalTitle: 'Admin Dashboard Access',
+      adminCodeModalDesc: 'Enter the admin security code (2006) to directly unlock verifications & bookings management.',
+      adminCodeLabel: 'Admin Code',
+      adminCodePlaceholder: 'Enter code',
+      adminCodeSubmit: 'Open Admin Dashboard',
+      adminCodeInvalid: 'Invalid admin code. Please try again.',
+      adminAuthRequired: 'Sign in with Google to sync live Firestore admin records.',
+      adminNotAuthorizedEmail: 'Could not verify admin session.',
+      signInAsAdminGoogle: 'Sign in with Google for Live Sync',
+      bookingsWithGpsTitle: 'Bookings, Seat Selections & Custom GPS Drop-offs (+10,000 IQD)',
+      driverTripsModerationTitle: 'Driver-Published Trips (Moderation)',
+      selectedSeatsCol: 'Selected Seats',
+      gpsDropOffCol: 'GPS Drop-off',
+      standardGarageDropOff: 'Standard Drop-off',
+      deleteTripConfirm: 'Confirm Delete',
+      adminCodeUnlockedNotice: 'Admin Dashboard unlocked via code (2006).',
+      adminOptionalSignInHint: 'You can inspect the console now, or sign in with any Google account to sync live Firestore collections.',
+      cargoCol: 'Cargo / Parcel',
+      pendingUsersCount: 'Users Pending Approval',
+      emptyList: 'No live records yet.',
     },
 
     map: {
@@ -2452,6 +2698,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       insufficientSeats: 'Not enough seats remaining on this trip.',
       sameGovernorate: 'Destination governorate must differ from departure.',
       unapprovedDriver: 'Driver verification must be approved before publishing trips.',
+      unapprovedUser: 'Your account is pending admin approval. Verified bookings unlock once approved.',
       cancellationTooLate: 'The cancellation window before departure has passed.',
       locationDenied: 'Location permission denied by browser.',
       duplicateBooking: 'You already have an active booking on this trip.',
@@ -2463,6 +2710,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       authPopupClosed: 'Google sign-in popup was closed before completing.',
       storageUnauthorized: 'Unable to upload verification photos due to Firebase Storage permissions.',
       invalidImageFile: 'Please choose a valid image file (JPG or PNG).',
+      cannotDeleteTripWithBookings: 'Cannot remove a trip with confirmed bookings. Cancel bookings first.',
     },
   },
 };

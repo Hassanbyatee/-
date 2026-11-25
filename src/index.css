@@ -25,25 +25,35 @@
   html {
     scroll-behavior: smooth;
     background-color: var(--surface-canvas);
+    scrollbar-gutter: stable;
   }
 
   body {
     background-color: var(--surface-canvas);
     color: #05203C;
-  }
-
-  html[dir="rtl"] body {
     font-family: var(--font-ar);
   }
 
-  html[dir="ltr"] body {
+  html[data-lang="en"] body {
     font-family: var(--font-en);
   }
 
-  html[dir="ltr"] h1,
-  html[dir="ltr"] h2,
-  html[dir="ltr"] h3 {
+  html[data-lang="en"] h1,
+  html[data-lang="en"] h2,
+  html[data-lang="en"] h3 {
     font-family: var(--font-display-en);
+  }
+
+  html[data-lang="en"] p,
+  html[data-lang="en"] h1,
+  html[data-lang="en"] h2,
+  html[data-lang="en"] h3,
+  html[data-lang="en"] h4,
+  html[data-lang="en"] label,
+  html[data-lang="en"] li,
+  html[data-lang="en"] td,
+  html[data-lang="en"] th {
+    unicode-bidi: plaintext;
   }
 
   .tabular-nums {
@@ -60,8 +70,25 @@
 }
 
 .surface-card-interactive:hover {
-  border-color: #94A3B8;
+  border-color: #93C5FD;
   box-shadow: var(--shadow-elevated);
+  transform: translateY(-2px);
+}
+
+.surface-card-interactive:active {
+  transform: translateY(0) scale(0.992);
+}
+
+.btn-tactile {
+  transition: transform 150ms var(--ease-settle), background-color 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.btn-tactile:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn-tactile:active:not(:disabled) {
+  transform: scale(0.975);
 }
 
 @media (prefers-reduced-motion: reduce) {

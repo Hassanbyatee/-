@@ -1,20 +1,11 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import {
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
-  updateProfile,
-  type User,
-} from 'firebase/auth';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
-import { auth, BOOTSTRAP_ADMIN_EMAIL, db, googleProvider, handleFirestoreError, OperationType } from '../lib/firebase';
+import { ADMIN_ACCESS_CODE, auth, db, googleProvider, handleFirestoreError, OperationType } from '../lib/firebase';
 import { DEFAULT_PLATFORM_SETTINGS, IRAQ_CITIES, IRAQ_GARAGES, IRAQ_GOVERNORATES } from '../data/iraqReferenceData';
 import { ensureAdminDocument } from '../services/platformService';
 import type {
   AppNotification,
-  CabinSeatId,
   City,
   DriverProfile,
   Garage,
@@ -28,35 +19,20 @@ import type {
   UserProfile,
 } from '../types/domain';
 
-const DEMO_STORAGE_KEY = 'masar_demo_trip_booked_seats_v1';
-const DEFAULT_DEMO_BOOKED_SEATS: CabinSeatId[] = ['rear_left'];
+const ADMIN_SESSION_STORAGE_KEY = 'masar_admin_code_unlocked_v1';
 
-function getTomorrowIsoDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().split('T')[0];
-}
-
-function loadDemoBookedSeats(): CabinSeatId[] {
+function loadAdminCodeSession(): boolean {
   try {
-    const raw = localStorage.getItem(DEMO_STORAGE_KEY);
-    if (!raw) return DEFAULT_DEMO_BOOKED_SEATS;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      const valid = parsed.filter((s): s is CabinSeatId =>
-        ['front_passenger', 'rear_right', 'rear_middle', 'rear_left'].includes(String(s))
-      );
-      return valid;
-    }
+    return sessionStorage.getItem(ADMIN_SESSION_STORAGE_KEY) === ADMIN_ACCESS_CODE;
   } catch {
-    // ignore storage errors
+    return false;
   }
-  return DEFAULT_DEMO_BOOKED_SEATS;
 }
 
 interface AuthContextValue {
   firebaseUser: User | null;
   authReady: boolean;
+  profileLoaded: boolean;
   userProfile: UserProfile | null;
   privateInfo: UserPrivateInfo | null;
   driverProfile: DriverProfile | null;
@@ -71,11 +47,8 @@ interface AuthContextValue {
   publicDrivers: PublicDriverProfile[];
   publishedReviews: Review[];
   notifications: AppNotification[];
-  bookDemoTrip: (seats: CabinSeatId[]) => void;
-  resetDemoTrip: () => void;
   signInWithGoogle: () => Promise<void>;
-  signInWithEmail: (email: string, password: string) => Promise<void>;
-  registerWithEmail: (email: string, password: string, displayName: string) => Promise<User>;
+  unlockAdminWithCode: (code: string) => Promise<boolean>;
   logout: () => Promise<void>;
 }
 
@@ -91,13 +64,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
   const [wallet, setWallet] = useState<PointsWallet | null>(null);
   const [hasAdminDoc, setHasAdminDoc] = useState(false);
+  const [adminCodeUnlocked, setAdminCodeUnlocked] = useState<boolean>(loadAdminCodeSession);
 
   const [governorates, setGovernorates] = useState<Governorate[]>(IRAQ_GOVERNORATES);
   const [cities, setCities] = useState<City[]>(IRAQ_CITIES);
   const [garages, setGarages] = useState<Garage[]>(IRAQ_GARAGES);
   const [settings, setSettings] = useState<PlatformSettings>(DEFAULT_PLATFORM_SETTINGS);
   const [firestoreTrips, setFirestoreTrips] = useState<Trip[]>([]);
-  const [demoBookedSeats, setDemoBookedSeats] = useState<CabinSeatId[]>(loadDemoBookedSeats);
   const [publicDrivers, setPublicDrivers] = useState<PublicDriverProfile[]>([]);
   const [publishedReviews, setPublishedReviews] = useState<Review[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -117,11 +90,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
       setProfileLoaded(false);
-      if (user.email === BOOTSTRAP_ADMIN_EMAIL && user.emailVerified) {
+      if (loadAdminCodeSession()) {
         try {
-          await ensureAdminDocument(user.uid, user.email);
+          await ensureAdminDocument(user.uid, user.email || '', ADMIN_ACCESS_CODE);
         } catch {
-          // Handled inside ensureAdminDocument
+          // Handled silently if unavailable
         }
       }
     });
@@ -291,11 +264,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubs.forEach((u) => u());
   }, [authReady, firebaseUser]);
 
-  const isAdmin = Boolean(
-    firebaseUser &&
-      firebaseUser.emailVerified &&
-      (firebaseUser.email === BOOTSTRAP_ADMIN_EMAIL || hasAdminDoc || userProfile?.role === 'admin')
-  );
+  const isAdmin = Boolean(adminCodeUnlocked || hasAdminDoc || userProfile?.role === 'admin');
 
   const needsOnboarding = Boolean(firebaseUser && profileLoaded && !userProfile);
 
@@ -303,72 +272,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await signInWithPopup(auth, googleProvider);
   };
 
-  const signInWithEmail = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email.trim(), password);
-  };
-
-  const registerWithEmail = async (email: string, password: string, displayName: string): Promise<User> => {
-    const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-    const trimmedName = displayName.trim();
-    if (trimmedName) {
-      await updateProfile(cred.user, { displayName: trimmedName });
+  const unlockAdminWithCode = async (code: string): Promise<boolean> => {
+    const trimmed = code.trim();
+    if (trimmed !== ADMIN_ACCESS_CODE) {
+      return false;
     }
-    return cred.user;
-  };
-
-  const demoTrip = useMemo<Trip>(() => {
-    const booked = Array.from(new Set(demoBookedSeats));
-    const available = Math.max(0, 4 - booked.length);
-    return {
-      id: 'demo-trip-bgw-ebl',
-      driverId: 'demo-driver-ali-bgw',
-      driverName: 'علي حسين الجبوري',
-      driverRating: 4.9,
-      driverCompletedTrips: 142,
-      driverVerified: true,
-      vehicleId: 'demo-veh-camry-2023',
-      vehicleModel: 'تويوتا كامري 2023',
-      vehiclePlate: 'بغداد 48291 أ',
-      departureGovId: 'bgw',
-      destinationGovId: 'ebl',
-      departureGarageId: 'gar_bgw_nahda',
-      destinationGarageId: 'gar_ebl_baghdad',
-      departureDate: getTomorrowIsoDate(),
-      departureTime: '08:30',
-      estimatedDurationMin: 270,
-      pricePerSeatIqd: 25000,
-      totalSeats: 4,
-      availableSeats: available,
-      confirmedSeatsCount: booked.length,
-      bookedSeats: booked,
-      status: 'scheduled',
-      notes: 'استلام من المنزل أو نقطة الالتقاء المتفق عليها (المنصور / الكرادة) والتوصيل إلى أربيل',
-      isSampleDemo: true,
-    };
-  }, [demoBookedSeats]);
-
-  const trips = useMemo(() => [demoTrip, ...firestoreTrips], [demoTrip, firestoreTrips]);
-
-  const bookDemoTrip = (seats: CabinSeatId[]) => {
-    setDemoBookedSeats((prev) => {
-      const next = Array.from(new Set([...prev, ...seats]));
-      try {
-        localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // ignore storage errors
-      }
-      return next;
-    });
-  };
-
-  const resetDemoTrip = () => {
-    setDemoBookedSeats(DEFAULT_DEMO_BOOKED_SEATS);
+    setAdminCodeUnlocked(true);
     try {
-      localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(DEFAULT_DEMO_BOOKED_SEATS));
+      sessionStorage.setItem(ADMIN_SESSION_STORAGE_KEY, ADMIN_ACCESS_CODE);
     } catch {
       // ignore storage errors
     }
+    if (auth.currentUser) {
+      try {
+        await ensureAdminDocument(auth.currentUser.uid, auth.currentUser.email || '', ADMIN_ACCESS_CODE);
+        setHasAdminDoc(true);
+      } catch {
+        // Non-blocking: admin view still opens cleanly
+      }
+    }
+    return true;
   };
+
+  const trips = firestoreTrips;
 
   const logout = async () => {
     await signOut(auth);
@@ -379,6 +305,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         firebaseUser,
         authReady,
+        profileLoaded,
         userProfile,
         privateInfo,
         driverProfile,
@@ -393,11 +320,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         publicDrivers,
         publishedReviews,
         notifications,
-        bookDemoTrip,
-        resetDemoTrip,
         signInWithGoogle,
-        signInWithEmail,
-        registerWithEmail,
+        unlockAdminWithCode,
         logout,
       }}
     >

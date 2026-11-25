@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Lock, X } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { I18nProvider, useI18n } from './i18n/I18nContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -10,20 +11,23 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { StaticPages } from './components/StaticPages';
 import { AuthOnboardingModal } from './components/AuthOnboardingModal';
 import { BookingModal } from './components/BookingModal';
-import { PageTransition } from './components/motion/KineticPrimitives';
+import { AnimatedModalShell, PageTransition } from './components/motion/KineticPrimitives';
 import type { Trip, UserRole } from './types/domain';
 
 const AppShell: React.FC = () => {
   const { t } = useI18n();
-  const { userProfile, isAdmin, logout } = useAuth();
+  const { userProfile, isAdmin, unlockAdminWithCode, logout } = useAuth();
 
   const [view, setView] = useState<AppView>('home');
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialRole, setAuthInitialRole] = useState<UserRole>('passenger');
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
+  const [adminCodeModalOpen, setAdminCodeModalOpen] = useState(false);
+  const [adminCodeInput, setAdminCodeInput] = useState('');
+  const [adminCodeError, setAdminCodeError] = useState('');
+  const [adminCodeBusy, setAdminCodeBusy] = useState(false);
   const [bookingTrip, setBookingTrip] = useState<Trip | null>(null);
   const [bookingToast, setBookingToast] = useState('');
-  const [bookingToastIsDemo, setBookingToastIsDemo] = useState(false);
   const [bookingToastDropOff, setBookingToastDropOff] = useState<{ lat: number; lng: number } | null>(null);
 
   const handleNavigate = (nextView: AppView, sectionId?: string) => {
@@ -67,7 +71,7 @@ const AppShell: React.FC = () => {
       <Navbar
         currentView={view}
         onNavigate={handleNavigate}
-        onOpenAuth={() => handleOpenAuthWithRole('passenger', 'login')}
+        onOpenAuth={(role) => handleOpenAuthWithRole(role ?? 'passenger', 'login')}
       />
 
       {bookingToast && (
@@ -85,7 +89,7 @@ const AppShell: React.FC = () => {
                   {t.booking.openDriverNavLink}
                 </a>
               )}
-              {userProfile && !bookingToastIsDemo && (
+              {userProfile && (
                 <button
                   type="button"
                   onClick={() => {
@@ -109,6 +113,11 @@ const AppShell: React.FC = () => {
               onSelectTripForBooking={(trip) => setBookingTrip(trip)}
               onOpenAuthWithRole={(r) => handleOpenAuthWithRole(r)}
               onNavigate={(v) => handleNavigate(v)}
+              onOpenAdminCode={() => {
+                setAdminCodeError('');
+                setAdminCodeInput('');
+                setAdminCodeModalOpen(true);
+              }}
             />
           )}
 
@@ -145,16 +154,109 @@ const AppShell: React.FC = () => {
       <BookingModal
         trip={bookingTrip}
         onClose={() => setBookingTrip(null)}
-        onSuccess={(isDemo, coords) => {
-          setBookingToastIsDemo(Boolean(isDemo));
+        onSuccess={(coords) => {
           setBookingToastDropOff(coords || null);
-          setBookingToast(isDemo ? t.booking.demoRequestSent : t.booking.requestSent);
+          setBookingToast(t.booking.requestSent);
           setTimeout(() => {
             setBookingToast('');
             setBookingToastDropOff(null);
           }, 8000);
         }}
       />
+
+      {/* ADMIN CODE ACCESS MODAL (CODE: 2006) */}
+      <AnimatedModalShell
+        isOpen={adminCodeModalOpen}
+        onClose={() => setAdminCodeModalOpen(false)}
+        maxWidthClass="max-w-md"
+      >
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setAdminCodeError('');
+            const code = adminCodeInput.trim();
+            if (code !== '2006') {
+              setAdminCodeError(t.admin.adminCodeInvalid);
+              return;
+            }
+            try {
+              setAdminCodeBusy(true);
+              const unlocked = await unlockAdminWithCode(code);
+              if (!unlocked) {
+                setAdminCodeError(t.admin.adminCodeInvalid);
+                return;
+              }
+              setAdminCodeModalOpen(false);
+              setAdminCodeInput('');
+              setView('admin');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            } catch {
+              setAdminCodeError(t.errors.generic);
+            } finally {
+              setAdminCodeBusy(false);
+            }
+          }}
+          className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 relative shadow-[var(--shadow-elevated)]"
+        >
+          <button
+            type="button"
+            onClick={() => setAdminCodeModalOpen(false)}
+            aria-label={t.common.close}
+            className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 absolute top-4 end-4 cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="flex items-center gap-2.5">
+            <span className="w-10 h-10 rounded-xl bg-[#EFF6FF] text-[#0770E3] flex items-center justify-center shrink-0">
+              <Lock className="w-5 h-5" />
+            </span>
+            <div>
+              <h3 className="text-base font-bold text-[#05203C]">{t.admin.adminCodeModalTitle}</h3>
+              <p className="text-xs text-slate-500 mt-0.5">{t.admin.adminCodeModalDesc}</p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              {t.admin.adminCodeLabel}
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              required
+              autoFocus
+              placeholder={t.admin.adminCodePlaceholder}
+              value={adminCodeInput}
+              onChange={(e) => setAdminCodeInput(e.target.value)}
+              className="w-full px-3.5 py-2.5 text-sm font-mono tracking-widest border border-slate-300 rounded-xl focus:outline-none focus:border-[#0770E3]"
+            />
+          </div>
+
+          {adminCodeError && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl px-3.5 py-2.5">
+              <p>{adminCodeError}</p>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setAdminCodeModalOpen(false)}
+              className="px-4 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-xl cursor-pointer"
+            >
+              {t.booking.cancel}
+            </button>
+            <button
+              type="submit"
+              disabled={adminCodeBusy}
+              className="btn-tactile px-5 py-2 bg-[#0770E3] text-white text-xs font-semibold rounded-xl hover:bg-[#0559B8] disabled:opacity-50 cursor-pointer"
+            >
+              {t.admin.adminCodeSubmit}
+            </button>
+          </div>
+        </form>
+      </AnimatedModalShell>
     </div>
   );
 };

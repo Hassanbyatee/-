@@ -187,6 +187,9 @@ export const IRAQ_GARAGES: Garage[] = [
   },
 ];
 
+export const SUPPORT_PHONE_NUMBER = '+9647738235028';
+export const SUPPORT_WHATSAPP_URL = 'https://wa.me/9647738235028';
+
 export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   pointsPerTrip: 5000,
   freeTripCostPoints: 35000,
@@ -195,7 +198,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   referralBonusReferee: 1500,
   commissionRatePercent: 10,
   cancellationHoursLimit: 3,
-  supportPhone: '+964 770 000 4455',
+  supportPhone: SUPPORT_PHONE_NUMBER,
   supportEmail: 'support@masar-iraq.iq',
 };
 

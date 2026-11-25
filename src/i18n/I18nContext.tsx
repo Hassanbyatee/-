@@ -28,17 +28,19 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return 'ar';
   });
 
-  const dir: 'rtl' | 'ltr' = lang === 'en' ? 'ltr' : 'rtl';
+  // Keep document layout direction fixed so language switches never mirror or shift page structure
+  const dir: 'rtl' | 'ltr' = 'rtl';
 
   useEffect(() => {
     document.documentElement.lang = lang;
-    document.documentElement.dir = dir;
+    document.documentElement.dir = 'rtl';
+    document.documentElement.dataset.lang = lang;
     try {
       localStorage.setItem(LANG_STORAGE_KEY, lang);
     } catch {
       // Ignore storage errors
     }
-  }, [lang, dir]);
+  }, [lang]);
 
   const setLang = (next: LanguageCode) => {
     setLangState(next);

@@ -1,12 +1,13 @@
 import React from 'react';
 import { Check, Lock } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
-import type { CabinSeatId } from '../types/domain';
+import type { CabinSeatId, SeatPricesMap } from '../types/domain';
 
 interface CarCabinSeatSelectorProps {
   bookedSeats: CabinSeatId[];
   selectedSeats: CabinSeatId[];
   maxSelectable: number;
+  seatPrices?: SeatPricesMap;
   onToggleSeat: (seatId: CabinSeatId) => void;
 }
 
@@ -20,9 +21,10 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
   bookedSeats,
   selectedSeats,
   maxSelectable,
+  seatPrices,
   onToggleSeat,
 }) => {
-  const { t } = useI18n();
+  const { formatIqd, t } = useI18n();
 
   const bookedSet = new Set<CabinSeatId>(bookedSeats);
   const selectedSet = new Set<CabinSeatId>(selectedSeats);
@@ -34,10 +36,15 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
     rear_left: t.booking.seatRearLeft,
   };
 
+  const selectedSubtotal = seatPrices
+    ? selectedSeats.reduce((sum, id) => sum + (seatPrices[id] || 0), 0)
+    : 0;
+
   const renderPassengerSeat = ({ id, label, compact = false }: SeatMeta) => {
     const isBooked = bookedSet.has(id);
     const isSelected = selectedSet.has(id);
     const limitReached = !isSelected && maxSelectable > 1 && selectedSeats.length >= maxSelectable;
+    const priceIqd = seatPrices?.[id];
 
     return (
       <button
@@ -46,9 +53,11 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
         disabled={isBooked || limitReached}
         onClick={() => onToggleSeat(id)}
         aria-pressed={isSelected}
-        aria-label={`${label} - ${isBooked ? t.booking.seatBooked : isSelected ? t.booking.seatSelected : t.booking.seatAvailable}`}
+        aria-label={`${label}${priceIqd ? ` - ${formatIqd(priceIqd)}` : ''} - ${
+          isBooked ? t.booking.seatBooked : isSelected ? t.booking.seatSelected : t.booking.seatAvailable
+        }`}
         className={`group relative flex flex-col items-center justify-between rounded-2xl border transition-all duration-200 select-none ${
-          compact ? 'px-2 py-2.5 min-h-[96px]' : 'px-3 py-3 min-h-[104px]'
+          compact ? 'px-1.5 py-2.5 min-h-[108px]' : 'px-2.5 py-3 min-h-[116px]'
         } ${
           isBooked
             ? 'bg-slate-200/90 border-slate-300 text-slate-400 cursor-not-allowed shadow-inner opacity-85'
@@ -81,27 +90,41 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
           }`}
         >
           {isBooked ? (
-            <Lock className="w-4 h-4 text-slate-400" />
+            <Lock className="w-3.5 h-3.5 text-slate-400" />
           ) : isSelected ? (
-            <span className="w-6 h-6 rounded-full bg-white text-[#0770E3] flex items-center justify-center shadow-xs">
-              <Check className="w-3.5 h-3.5 stroke-[3]" />
+            <span className="w-5 h-5 rounded-full bg-white text-[#0770E3] flex items-center justify-center shadow-xs">
+              <Check className="w-3 h-3 stroke-[3]" />
             </span>
           ) : (
-            <span className="w-5 h-5 rounded-full border-2 border-slate-300 group-hover:border-[#0770E3] transition-colors" />
+            <span className="w-4 h-4 rounded-full border-2 border-slate-300 group-hover:border-[#0770E3] transition-colors" />
           )}
 
           <span
-            className={`text-[11px] font-bold leading-tight text-center ${
+            className={`text-[10.5px] font-bold leading-tight text-center ${
               isBooked ? 'text-slate-500' : isSelected ? 'text-white' : 'text-slate-800'
             }`}
           >
             {label}
           </span>
+
+          {typeof priceIqd === 'number' && priceIqd > 0 && (
+            <span
+              className={`text-[10px] font-bold font-mono tabular-nums px-1.5 py-0.5 rounded-md ${
+                isBooked
+                  ? 'bg-slate-300/70 text-slate-500 line-through'
+                  : isSelected
+                  ? 'bg-white/20 text-white'
+                  : 'bg-[#EFF6FF] text-[#0559B8]'
+              }`}
+            >
+              {priceIqd.toLocaleString('en-US')} {t.currency}
+            </span>
+          )}
         </div>
 
         {/* Bottom Seat Lip */}
         <span
-          className={`text-[10px] font-semibold tracking-wide ${
+          className={`text-[9.5px] font-semibold tracking-wide ${
             isBooked ? 'text-slate-400' : isSelected ? 'text-blue-100' : 'text-slate-500'
           }`}
         >
@@ -141,7 +164,7 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
 
       {/* 3D Perspective Top-Down Car Interior Diagram */}
       <div
-        className="relative mx-auto max-w-[360px] pt-2 pb-3"
+        className="relative mx-auto max-w-[380px] pt-2 pb-3"
         style={{ perspective: '950px' }}
       >
         <div
@@ -170,9 +193,9 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
           {/* Cabin Interior Floor */}
           <div className="mx-1 my-1.5 rounded-[24px] bg-gradient-to-b from-slate-100 via-slate-50 to-slate-100 border border-slate-300/80 p-3 space-y-3.5 shadow-inner">
             {/* FRONT ROW: Driver (Left) + Console + Front Passenger (Right) */}
-            <div className="grid grid-cols-[1fr_40px_1fr] gap-2 items-stretch">
+            <div className="grid grid-cols-[1fr_36px_1fr] gap-2 items-stretch">
               {/* Driver Seat (Always Front-Left, Occupied) */}
-              <div className="relative flex flex-col items-center justify-between rounded-2xl border border-slate-300 bg-[#05203C]/[0.08] px-2.5 py-2.5 min-h-[104px] text-slate-600 select-none">
+              <div className="relative flex flex-col items-center justify-between rounded-2xl border border-slate-300 bg-[#05203C]/[0.08] px-2.5 py-2.5 min-h-[116px] text-slate-600 select-none">
                 {/* Steering Wheel */}
                 <div className="flex items-center justify-center w-full mb-1">
                   <svg
@@ -253,14 +276,21 @@ export const CarCabinSeatSelector: React.FC<CarCabinSeatSelectorProps> = ({
         </div>
       </div>
 
-      {/* Selected Seats Summary Strip */}
+      {/* Selected Seats & Subtotal Strip */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-        <span className="font-semibold text-slate-600">{t.booking.selectedSeatsLabel}:</span>
-        {selectedSeats.length === 0 ? (
-          <span className="text-rose-600 font-medium">{t.booking.selectAtLeastOneSeat}</span>
-        ) : (
-          <span className="font-bold text-[#0770E3]">
-            {selectedSeats.map((id) => seatLabels[id]).join(' • ')} ({selectedSeats.length})
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="font-semibold text-slate-600">{t.booking.selectedSeatsLabel}:</span>
+          {selectedSeats.length === 0 ? (
+            <span className="text-rose-600 font-medium">{t.booking.selectAtLeastOneSeat}</span>
+          ) : (
+            <span className="font-bold text-[#0770E3]">
+              {selectedSeats.map((id) => seatLabels[id]).join(' • ')} ({selectedSeats.length})
+            </span>
+          )}
+        </div>
+        {seatPrices && selectedSeats.length > 0 && (
+          <span className="font-bold font-mono tabular-nums text-[#05203C]">
+            {formatIqd(selectedSubtotal)}
           </span>
         )}
       </div>

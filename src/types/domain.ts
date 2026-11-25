@@ -8,6 +8,61 @@ export type BookingStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled' | 
 export type PaymentStatus = 'unpaid' | 'paid' | 'disputed' | 'refunded';
 export type PaymentMethod = 'cash' | 'points';
 export type CabinSeatId = 'front_passenger' | 'rear_right' | 'rear_middle' | 'rear_left';
+export const CABIN_SEAT_IDS: CabinSeatId[] = [
+  'front_passenger',
+  'rear_right',
+  'rear_middle',
+  'rear_left',
+];
+export type SeatPricesMap = Record<CabinSeatId, number>;
+
+export function resolveTripSeatPrices(trip?: {
+  pricePerSeatIqd?: number;
+  seatPrices?: Partial<Record<CabinSeatId, number>>;
+} | null): SeatPricesMap {
+  const base = Number(trip?.pricePerSeatIqd) > 0 ? Number(trip?.pricePerSeatIqd) : 25000;
+  return {
+    front_passenger:
+      Number(trip?.seatPrices?.front_passenger) > 0
+        ? Number(trip?.seatPrices?.front_passenger)
+        : base,
+    rear_right:
+      Number(trip?.seatPrices?.rear_right) > 0
+        ? Number(trip?.seatPrices?.rear_right)
+        : base,
+    rear_middle:
+      Number(trip?.seatPrices?.rear_middle) > 0
+        ? Number(trip?.seatPrices?.rear_middle)
+        : base,
+    rear_left:
+      Number(trip?.seatPrices?.rear_left) > 0
+        ? Number(trip?.seatPrices?.rear_left)
+        : base,
+  };
+}
+
+export function getTripSeatPrice(
+  trip: { pricePerSeatIqd?: number; seatPrices?: Partial<Record<CabinSeatId, number>> } | null | undefined,
+  seatId: CabinSeatId
+): number {
+  return resolveTripSeatPrices(trip)[seatId];
+}
+
+export function getTripMinSeatPrice(trip?: {
+  pricePerSeatIqd?: number;
+  seatPrices?: Partial<Record<CabinSeatId, number>>;
+} | null): number {
+  const map = resolveTripSeatPrices(trip);
+  return Math.min(map.front_passenger, map.rear_right, map.rear_middle, map.rear_left);
+}
+
+export function getTripMaxSeatPrice(trip?: {
+  pricePerSeatIqd?: number;
+  seatPrices?: Partial<Record<CabinSeatId, number>>;
+} | null): number {
+  const map = resolveTripSeatPrices(trip);
+  return Math.max(map.front_passenger, map.rear_right, map.rear_middle, map.rear_left);
+}
 
 export interface UserProfile {
   uid: string;
@@ -15,6 +70,7 @@ export interface UserProfile {
   role: UserRole;
   accountStatus: AccountStatus;
   verificationStatus?: VerificationStatus;
+  rejectionReason?: string;
   preferredLanguage: LanguageCode;
   referralCode: string;
   referredBy?: string;
@@ -147,6 +203,9 @@ export interface Trip {
   departureTime: string;
   estimatedDurationMin?: number;
   pricePerSeatIqd: number;
+  seatPrices?: SeatPricesMap;
+  cargoEnabled?: boolean;
+  cargoPriceIqd?: number;
   originalPriceIqd?: number;
   isSpecialOffer?: boolean;
   totalSeats: number;
@@ -159,7 +218,6 @@ export interface Trip {
   liveLat?: number;
   liveLng?: number;
   lastBookingId?: string;
-  isSampleDemo?: boolean;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -180,6 +238,10 @@ export interface Booking {
   seatsCount: number;
   selectedSeats?: CabinSeatId[];
   seatPriceIqd: number;
+  seatsSubtotalIqd?: number;
+  includeCargo?: boolean;
+  cargoFeeIqd?: number;
+  cargoNotes?: string;
   totalPriceIqd: number;
   pointsRedeemed: number;
   isFreeTrip: boolean;

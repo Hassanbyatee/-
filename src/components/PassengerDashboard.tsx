@@ -1,29 +1,36 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertCircle,
   AlertTriangle,
   Award,
   Bell,
   Calendar,
+  Car,
   Check,
+  CheckCircle2,
   Copy,
   Gift,
   HeadphonesIcon,
   Navigation,
+  Package,
   Search,
   Share2,
   Star,
+  Upload,
   User,
 } from 'lucide-react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
+import { uploadVerificationImage } from '../services/imageUtils';
 import {
   cancelBookingTransaction,
   disputePayment,
   markAllNotificationsRead,
   markNotificationRead,
   requestBookingReschedule,
+  resubmitPassengerVerificationDocs,
   submitComplaint,
   submitReviewTransaction,
   subscribeSeatAlert,
@@ -60,7 +67,6 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
     trips,
     settings,
     notifications,
-    resetDemoTrip,
   } = useAuth();
 
   const [tab, setTab] = useState<PassengerTab>('bookings');
@@ -102,6 +108,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
   const [profLang, setProfLang] = useState<LanguageCode>(userProfile?.preferredLanguage || lang);
 
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [resubmitIdFile, setResubmitIdFile] = useState<File | null>(null);
+  const [resubmitPortraitFile, setResubmitPortraitFile] = useState<File | null>(null);
+  const [resubmittingDocs, setResubmittingDocs] = useState(false);
 
   React.useEffect(() => {
     if (userProfile) {
@@ -285,6 +294,36 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
     { id: 'profile', label: t.passenger.tabProfile, icon: <User className="w-4 h-4" /> },
   ];
 
+  const isApprovedMember =
+    userProfile.verificationStatus === 'approved' && userProfile.accountStatus === 'active';
+
+  const handleResubmitDocs = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resubmitIdFile || !resubmitPortraitFile) {
+      notify('err', t.auth.missingRequiredFields);
+      return;
+    }
+    setResubmittingDocs(true);
+    try {
+      const ts = Date.now();
+      const [idUrl, portraitUrl] = await Promise.all([
+        uploadVerificationImage(resubmitIdFile, `verification/${firebaseUser.uid}/id_resubmit_${ts}`),
+        uploadVerificationImage(resubmitPortraitFile, `verification/${firebaseUser.uid}/portrait_resubmit_${ts}`),
+      ]);
+      await resubmitPassengerVerificationDocs(firebaseUser.uid, {
+        idDocumentUrl: idUrl,
+        portraitUrl,
+      });
+      setResubmitIdFile(null);
+      setResubmitPortraitFile(null);
+      notify('ok', t.auth.docsResubmitted);
+    } catch {
+      notify('err', t.errors.generic);
+    } finally {
+      setResubmittingDocs(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
@@ -298,6 +337,72 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
           </p>
         </div>
       </div>
+
+      {/* Verification Status Gate Banner */}
+      {isApprovedMember ? (
+        <div className="bg-[#EFF6FF] border border-[#BFDBFE] rounded-2xl px-4 py-3 flex items-center gap-2 text-sm font-semibold text-[#0559B8]">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{t.auth.verifiedPassengerBadge}</span>
+        </div>
+      ) : userProfile.verificationStatus === 'rejected' ? (
+        <form
+          onSubmit={handleResubmitDocs}
+          className="bg-rose-50 border border-rose-200 rounded-2xl p-4 sm:p-5 space-y-3"
+        >
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-700 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-bold text-rose-900">{t.auth.rejectedStatus}</div>
+              <p className="text-xs sm:text-sm text-rose-800 mt-0.5">
+                {userProfile.rejectionReason || t.auth.pendingApprovalBannerDesc}
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <label className="flex items-center justify-between gap-2 px-3 py-2.5 bg-white border border-dashed border-rose-300 rounded-xl text-xs cursor-pointer hover:bg-rose-50/60">
+              <span className="truncate font-medium text-slate-800">
+                {resubmitIdFile ? resubmitIdFile.name : t.auth.idCardPhoto}
+              </span>
+              <Upload className="w-4 h-4 text-rose-700 shrink-0" />
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => setResubmitIdFile(e.target.files?.[0] || null)}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2 px-3 py-2.5 bg-white border border-dashed border-rose-300 rounded-xl text-xs cursor-pointer hover:bg-rose-50/60">
+              <span className="truncate font-medium text-slate-800">
+                {resubmitPortraitFile ? resubmitPortraitFile.name : t.auth.portraitPhoto}
+              </span>
+              <Upload className="w-4 h-4 text-rose-700 shrink-0" />
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => setResubmitPortraitFile(e.target.files?.[0] || null)}
+              />
+            </label>
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={resubmittingDocs || !resubmitIdFile || !resubmitPortraitFile}
+              className="px-4 py-2 text-xs font-semibold bg-rose-700 text-white rounded-xl hover:bg-rose-800 disabled:opacity-50 cursor-pointer"
+            >
+              {resubmittingDocs ? t.auth.submitting : t.auth.resubmitDocsBtn}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-bold text-amber-900">{t.auth.pendingApprovalBannerTitle}</div>
+            <p className="text-xs sm:text-sm text-amber-800 mt-0.5">{t.auth.pendingApprovalBannerDesc}</p>
+          </div>
+        </div>
+      )}
 
       {/* Responsive Tab Bar */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-2 border-b border-slate-200">
@@ -352,7 +457,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
                 const pay = paymentMap.get(bk.id);
                 const liveTrip = tripMap.get(bk.tripId);
                 return (
-                  <div key={bk.id} className="surface-card rounded-2xl p-5 space-y-4">
+                  <div key={bk.id} className="surface-card surface-card-interactive rounded-2xl p-5 space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
                         <div className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
@@ -378,6 +483,15 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
                             ? ` (${bk.selectedSeats.map((s) => seatLabelMap[s]).join('، ')})`
                             : ''}
                         </p>
+                        {bk.includeCargo && (
+                          <div className="mt-2 inline-flex flex-wrap items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1 text-xs">
+                            <Package className="w-3.5 h-3.5 text-emerald-700" />
+                            <span className="font-semibold text-emerald-900">
+                              {t.booking.cargoBadge} (+{formatIqd(bk.cargoFeeIqd || 0)})
+                            </span>
+                            {bk.cargoNotes && <span className="text-emerald-800">{bk.cargoNotes}</span>}
+                          </div>
+                        )}
                         {bk.useCustomDropOff &&
                           typeof bk.customDropOffLat === 'number' &&
                           typeof bk.customDropOffLng === 'number' && (
@@ -529,23 +643,40 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({ onSelect
               ))}
             </select>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {searchedTrips.map((tr) => (
-              <TripCard
-                key={tr.id}
-                trip={tr}
-                governorates={governorates}
-                garages={garages}
-                currentUserId={firebaseUser.uid}
-                onBook={onSelectTripForBooking}
-                onSeatAlert={async (trip) => {
-                  await subscribeSeatAlert(trip.id, trip.driverId, firebaseUser.uid, 1);
-                  notify('ok', t.tripCard.alertSubscribed);
-                }}
-                onResetDemo={tr.isSampleDemo ? resetDemoTrip : undefined}
-              />
-            ))}
-          </div>
+          {searchedTrips.length === 0 ? (
+            <div className="surface-card rounded-2xl p-10 text-center space-y-2">
+              <Car className="w-8 h-8 text-slate-400 mx-auto" />
+              <h3 className="text-base font-bold text-slate-900">{t.home.noTripsTitle}</h3>
+              <p className="text-sm text-slate-600">{t.home.noTripsDesc}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {searchedTrips.map((tr) => (
+                <TripCard
+                  key={tr.id}
+                  trip={tr}
+                  governorates={governorates}
+                  garages={garages}
+                  currentUserId={firebaseUser.uid}
+                  onBook={(trip) => {
+                    if (!isApprovedMember) {
+                      notify('err', t.errors.unapprovedUser);
+                      return;
+                    }
+                    onSelectTripForBooking(trip);
+                  }}
+                  onSeatAlert={async (trip) => {
+                    if (!isApprovedMember) {
+                      notify('err', t.errors.unapprovedUser);
+                      return;
+                    }
+                    await subscribeSeatAlert(trip.id, trip.driverId, firebaseUser.uid, 1);
+                    notify('ok', t.tripCard.alertSubscribed);
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

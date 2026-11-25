@@ -21,18 +21,22 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
 import { subscribeSeatAlert } from '../services/platformService';
+import { SUPPORT_PHONE_NUMBER, SUPPORT_WHATSAPP_URL } from '../data/iraqReferenceData';
 import { TripCard } from './TripCard';
 import {
   AnimatedCounter,
+  HeroReveal,
+  SectionReveal,
   useGsapStaggerReveal,
 } from './motion/KineticPrimitives';
 import type { AppView } from './Navbar';
-import type { Trip } from '../types/domain';
+import { getTripMinSeatPrice, type Trip } from '../types/domain';
 
 interface HomePageProps {
   onSelectTripForBooking: (trip: Trip) => void;
   onOpenAuthWithRole: (role: 'passenger' | 'driver') => void;
   onNavigate: (view: AppView) => void;
+  onOpenAdminCode?: () => void;
 }
 
 type HeroCategory = 'trips' | 'routes' | 'rewards' | 'drivers';
@@ -40,29 +44,22 @@ type TimeWindow = 'all' | 'morning' | 'afternoon' | 'evening';
 type TripFilterPill = 'all' | 'cheapest' | 'offers' | 'morning' | 'multiSeat';
 type SubNavSection = 'destinations' | 'available-trips' | 'providers' | 'ratings' | 'facts-faq';
 
-const ROUTE_BENCHMARKS: Array<{ from: string; to: string; fallbackFare: number }> = [
-  { from: 'bgw', to: 'njf', fallbackFare: 15000 },
-  { from: 'bgw', to: 'krb', fallbackFare: 15000 },
-  { from: 'ebl', to: 'isu', fallbackFare: 20000 },
-  { from: 'bgw', to: 'ebl', fallbackFare: 30000 },
-  { from: 'bgw', to: 'bsr', fallbackFare: 35000 },
-];
-
 export const HomePage: React.FC<HomePageProps> = ({
   onSelectTripForBooking,
   onOpenAuthWithRole,
   onNavigate,
+  onOpenAdminCode,
 }) => {
   const { dir, getLocalizedName, formatIqd, t } = useI18n();
   const {
     firebaseUser,
+    userProfile,
     governorates,
     garages,
     trips,
     publicDrivers,
     publishedReviews,
     settings,
-    resetDemoTrip,
   } = useAuth();
   const prefersReduced = useReducedMotion();
 
@@ -85,7 +82,7 @@ export const HomePage: React.FC<HomePageProps> = ({
   const providersRef = useRef<HTMLElement>(null);
 
   useGsapStaggerReveal(destinationsRef, '.gsap-dest-card', []);
-  useGsapStaggerReveal(tripsSectionRef, '.gsap-trip-item', [trips.length]);
+  useGsapStaggerReveal(tripsSectionRef, '.gsap-trip-item', []);
   useGsapStaggerReveal(providersRef, '.gsap-provider-card', [governorates.length]);
 
   const RouteArrow = dir === 'rtl' ? ArrowLeft : ArrowRight;
@@ -141,7 +138,7 @@ export const HomePage: React.FC<HomePageProps> = ({
     });
 
     if (tripPill === 'cheapest') {
-      return [...base].sort((a, b) => a.pricePerSeatIqd - b.pricePerSeatIqd);
+      return [...base].sort((a, b) => getTripMinSeatPrice(a) - getTripMinSeatPrice(b));
     }
     return base;
   }, [
@@ -157,69 +154,84 @@ export const HomePage: React.FC<HomePageProps> = ({
   ]);
 
   const fareComparisonBars = useMemo(() => {
-    const rows = ROUTE_BENCHMARKS.map((item) => {
-      const matching = trips.filter(
-        (tr) =>
-          (tr.departureGovId === item.from && tr.destinationGovId === item.to) ||
-          (tr.departureGovId === item.to && tr.destinationGovId === item.from)
-      );
-      const avgFare =
-        matching.length > 0
-          ? Math.round(matching.reduce((sum, tr) => sum + tr.pricePerSeatIqd, 0) / matching.length)
-          : item.fallbackFare;
-      return {
-        ...item,
-        avgFare,
-        count: matching.length,
+    if (trips.length === 0) return [];
+    const grouped = new Map<string, { from: string; to: string; totalFare: number; count: number }>();
+    for (const tr of trips) {
+      const key = `${tr.departureGovId}--${tr.destinationGovId}`;
+      const existing = grouped.get(key) || {
+        from: tr.departureGovId,
+        to: tr.destinationGovId,
+        totalFare: 0,
+        count: 0,
       };
-    });
-    const maxFare = Math.max(...rows.map((r) => r.avgFare), 35000);
+      existing.totalFare += getTripMinSeatPrice(tr);
+      existing.count += 1;
+      grouped.set(key, existing);
+    }
+    const rows = Array.from(grouped.values())
+      .map((item) => ({
+        from: item.from,
+        to: item.to,
+        avgFare: Math.round(item.totalFare / item.count),
+        count: item.count,
+      }))
+      .sort((a, b) => b.count - a.count || a.avgFare - b.avgFare)
+      .slice(0, 5);
+    const maxFare = Math.max(...rows.map((r) => r.avgFare), 1);
     return rows.map((r) => ({
       ...r,
       pct: Math.max(22, Math.round((r.avgFare / maxFare) * 100)),
     }));
   }, [trips]);
 
-  const popularDestinations = [
-    {
-      govId: 'bgw',
-      code: 'BGW',
-      routeCount: trips.filter((tr) => tr.destinationGovId === 'bgw' || tr.departureGovId === 'bgw').length,
-      minFare: 20000,
-    },
-    {
-      govId: 'ebl',
-      code: 'EBL',
-      routeCount: trips.filter((tr) => tr.destinationGovId === 'ebl' || tr.departureGovId === 'ebl').length,
-      minFare: 25000,
-    },
-    {
-      govId: 'bsr',
-      code: 'BSR',
-      routeCount: trips.filter((tr) => tr.destinationGovId === 'bsr' || tr.departureGovId === 'bsr').length,
-      minFare: 35000,
-    },
-    {
-      govId: 'njf',
-      code: 'NJF',
-      routeCount: trips.filter((tr) => tr.destinationGovId === 'njf' || tr.departureGovId === 'njf').length,
-      minFare: 15000,
-    },
-  ];
+  const popularDestinations = useMemo(() => {
+    const destSpecs = [
+      { govId: 'bgw', code: 'BGW' },
+      { govId: 'ebl', code: 'EBL' },
+      { govId: 'bsr', code: 'BSR' },
+      { govId: 'njf', code: 'NJF' },
+    ];
+    return destSpecs.map((spec) => {
+      const matching = trips.filter(
+        (tr) => tr.destinationGovId === spec.govId || tr.departureGovId === spec.govId
+      );
+      return {
+        ...spec,
+        routeCount: matching.length,
+        minFare:
+          matching.length > 0 ? Math.min(...matching.map((tr) => getTripMinSeatPrice(tr))) : null,
+      };
+    });
+  }, [trips]);
 
-  const avgRatingScore = useMemo(() => {
-    if (publishedReviews.length === 0) return 4.9;
-    const avg =
-      publishedReviews.reduce((s, r) => s + (r.driverRating || 5), 0) / publishedReviews.length;
-    return Number(avg.toFixed(1));
-  }, [publishedReviews]);
-
-  const ratingBars = [
-    { label: t.home.ratingPunctuality, score: 4.9, pct: 98 },
-    { label: t.home.ratingComfort, score: 4.8, pct: 96 },
-    { label: t.home.ratingStations, score: 4.7, pct: 94 },
-    { label: t.home.ratingValue, score: 4.9, pct: 98 },
-  ];
+  const { avgRatingScore, ratingBars } = useMemo(() => {
+    if (publishedReviews.length === 0) {
+      return {
+        avgRatingScore: 0,
+        ratingBars: [
+          { label: t.home.ratingPunctuality, score: 0, pct: 0 },
+          { label: t.home.ratingComfort, score: 0, pct: 0 },
+          { label: t.home.ratingStations, score: 0, pct: 0 },
+          { label: t.home.ratingValue, score: 0, pct: 0 },
+        ],
+      };
+    }
+    const len = publishedReviews.length;
+    const meanDriver = publishedReviews.reduce((s, r) => s + Number(r.driverRating || 0), 0) / len;
+    const meanVehicle = publishedReviews.reduce((s, r) => s + Number(r.vehicleRating || 0), 0) / len;
+    const meanExp = publishedReviews.reduce((s, r) => s + Number(r.experienceRating || 0), 0) / len;
+    const overall = (meanDriver + meanVehicle + meanExp) / 3;
+    const toPct = (v: number) => Math.max(0, Math.min(100, Math.round((v / 5) * 100)));
+    return {
+      avgRatingScore: Number(overall.toFixed(1)),
+      ratingBars: [
+        { label: t.home.ratingPunctuality, score: Number(meanDriver.toFixed(1)), pct: toPct(meanDriver) },
+        { label: t.home.ratingComfort, score: Number(meanVehicle.toFixed(1)), pct: toPct(meanVehicle) },
+        { label: t.home.ratingStations, score: Number(meanExp.toFixed(1)), pct: toPct(meanExp) },
+        { label: t.home.ratingValue, score: Number(overall.toFixed(1)), pct: toPct(overall) },
+      ],
+    };
+  }, [publishedReviews, t]);
 
   const handleSwapCities = () => {
     const prevDep = departureGovId;
@@ -242,9 +254,20 @@ export const HomePage: React.FC<HomePageProps> = ({
     if (cat === 'drivers') scrollToSection('become-driver');
   };
 
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 5000);
+  };
+
   const handleBookClick = (trip: Trip) => {
-    if (!firebaseUser && !trip.isSampleDemo) {
+    if (!firebaseUser) {
       onOpenAuthWithRole('passenger');
+      return;
+    }
+    if (userProfile && (userProfile.verificationStatus !== 'approved' || userProfile.accountStatus !== 'active')) {
+      showToast(
+        `${t.errors.unapprovedUser}${userProfile.rejectionReason ? ` (${userProfile.rejectionReason})` : ''}`
+      );
       return;
     }
     onSelectTripForBooking(trip);
@@ -255,9 +278,12 @@ export const HomePage: React.FC<HomePageProps> = ({
       onOpenAuthWithRole('passenger');
       return;
     }
+    if (userProfile && (userProfile.verificationStatus !== 'approved' || userProfile.accountStatus !== 'active')) {
+      showToast(t.errors.unapprovedUser);
+      return;
+    }
     await subscribeSeatAlert(trip.id, trip.driverId, firebaseUser.uid, minSeats);
-    setToastMsg(t.tripCard.alertSubscribed);
-    setTimeout(() => setToastMsg(''), 3500);
+    showToast(t.tripCard.alertSubscribed);
   };
 
   const hasActiveFilters = Boolean(
@@ -304,7 +330,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       <section className="bg-[#05203C] text-white border-b border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-10 sm:pt-7 sm:pb-12 space-y-6">
           {/* Category Pills Bar */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {(
               [
                 { id: 'trips', label: t.hero.catTrips, icon: Car },
@@ -320,7 +346,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                   key={cat.id}
                   type="button"
                   onClick={() => handleHeroCategorySelect(cat.id)}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  className={`btn-tactile inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                     active
                       ? 'bg-[#0770E3] text-white'
                       : 'bg-white/10 border border-white/20 text-white hover:bg-white/15'
@@ -334,7 +360,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           </div>
 
           {/* Breadcrumb + Bold Clean Headline */}
-          <div className="space-y-2.5 max-w-3xl">
+          <HeroReveal delay={0.04} className="space-y-2.5 max-w-3xl">
             <div className="flex items-center gap-2 text-xs text-white/70">
               <span>{t.hero.breadcrumbHome}</span>
               <span aria-hidden="true">/</span>
@@ -351,10 +377,10 @@ export const HomePage: React.FC<HomePageProps> = ({
             <p className="text-sm sm:text-base text-white/80 leading-relaxed max-w-2xl">
               {t.hero.subtitle}
             </p>
-          </div>
+          </HeroReveal>
 
           {/* Crisp White Search Card */}
-          <div className="bg-white text-[#05203C] rounded-[12px] border border-[#E0E4E8] p-4 sm:p-5 space-y-4">
+          <HeroReveal delay={0.1} className="bg-white text-[#05203C] rounded-[12px] border border-[#E0E4E8] p-4 sm:p-5 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_44px_minmax(0,1.2fr)_minmax(175px,1fr)_minmax(155px,0.9fr)_minmax(145px,0.85fr)] gap-3 items-end">
               <div className="min-w-0">
                 <label className="flex items-center gap-1.5 text-xs font-semibold text-[#05203C] mb-1.5 whitespace-nowrap">
@@ -471,7 +497,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                 <button
                   type="button"
                   onClick={() => scrollToSection('available-trips')}
-                  className="w-full h-[44px] px-4 bg-[#0770E3] text-white font-semibold text-sm rounded-lg hover:bg-[#0559B8] transition-colors inline-flex items-center justify-center gap-2 cursor-pointer"
+                  className="btn-tactile w-full h-[44px] px-4 bg-[#0770E3] text-white font-semibold text-sm rounded-lg hover:bg-[#0559B8] transition-colors inline-flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Search className="w-4 h-4 shrink-0" />
                   <span className="whitespace-nowrap">{t.hero.searchButton}</span>
@@ -519,15 +545,16 @@ export const HomePage: React.FC<HomePageProps> = ({
                 </select>
               </div>
             </div>
-          </div>
+          </HeroReveal>
         </div>
       </section>
 
       {/* 2. STICKY HORIZONTAL SUB-NAVIGATION WITH ACTIVE BLUE UNDERLINE */}
       <div className="sticky top-16 z-30 bg-white border-b border-[#E0E4E8]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-6 overflow-x-auto h-11">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between sm:justify-start gap-4 sm:gap-7 overflow-x-auto h-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {subNavItems.map((item) => {
             const active = activeSubNav === item.id;
+            const hideOnMobile = item.id === 'providers' || item.id === 'ratings';
             return (
               <button
                 key={item.id}
@@ -536,7 +563,9 @@ export const HomePage: React.FC<HomePageProps> = ({
                   setActiveSubNav(item.id);
                   scrollToSection(item.id);
                 }}
-                className={`h-full inline-flex items-center text-xs sm:text-sm whitespace-nowrap shrink-0 border-b-2 transition-colors cursor-pointer ${
+                className={`h-full items-center text-xs sm:text-sm whitespace-nowrap shrink-0 border-b-2 transition-colors cursor-pointer px-1 ${
+                  hideOnMobile ? 'hidden sm:inline-flex' : 'inline-flex'
+                } ${
                   active
                     ? 'border-[#0770E3] text-[#0770E3] font-semibold'
                     : 'border-transparent text-slate-600 hover:text-[#05203C] font-medium'
@@ -550,8 +579,8 @@ export const HomePage: React.FC<HomePageProps> = ({
       </div>
 
       {toastMsg && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 w-full">
-          <div className="bg-[#EFF6FF] border border-[#BFDBFE] text-[#0770E3] text-sm font-medium rounded-[12px] px-4 py-3">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 w-[min(92vw,34rem)] shadow-[var(--shadow-elevated)]">
+          <div className="bg-[#05203C] border border-[#0770E3]/40 text-white text-sm font-medium rounded-xl px-4 py-3 text-center">
             {toastMsg}
           </div>
         </div>
@@ -560,10 +589,12 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* 3. POPULAR ROUTES & FARE COMPARISON BARS */}
       <section ref={destinationsRef} id="destinations" className="max-w-7xl mx-auto px-4 sm:px-6 py-12 w-full space-y-10">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-[#05203C] tracking-tight">
-            {t.home.popularDestinationsTitle}
-          </h2>
-          <p className="text-sm text-slate-600 mt-1">{t.home.popularDestinationsSub}</p>
+          <SectionReveal>
+            <h2 className="text-xl sm:text-2xl font-bold text-[#05203C] tracking-tight">
+              {t.home.popularDestinationsTitle}
+            </h2>
+            <p className="text-sm text-slate-600 mt-1">{t.home.popularDestinationsSub}</p>
+          </SectionReveal>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
             {popularDestinations.map((dest) => {
@@ -578,7 +609,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     setDepartureGovId('');
                     scrollToSection('available-trips');
                   }}
-                  className="gsap-dest-card group text-start bg-white border border-[#E0E4E8] rounded-[12px] p-5 hover:border-[#0770E3] transition-colors cursor-pointer flex flex-col justify-between gap-4"
+                  className="gsap-dest-card surface-card-interactive group text-start bg-white border border-[#E0E4E8] rounded-[12px] p-5 hover:border-[#0770E3] transition-colors cursor-pointer flex flex-col justify-between gap-4"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="w-9 h-9 rounded-lg bg-[#EFF6FF] text-[#0770E3] flex items-center justify-center shrink-0">
@@ -600,9 +631,11 @@ export const HomePage: React.FC<HomePageProps> = ({
 
                   <div className="pt-3.5 border-t border-[#E0E4E8] flex items-center justify-between gap-2">
                     <div>
-                      <div className="text-[11px] text-slate-500">{t.home.startingFrom}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {dest.minFare !== null ? t.home.startingFrom : t.home.noRoutesYetShort}
+                      </div>
                       <div className="text-base font-bold font-mono text-[#0770E3] tabular-nums">
-                        {formatIqd(dest.minFare)}
+                        {dest.minFare !== null ? formatIqd(dest.minFare) : '—'}
                       </div>
                     </div>
                     <RouteArrow className="w-4 h-4 text-slate-400 group-hover:text-[#0770E3] transition-colors shrink-0" />
@@ -623,53 +656,59 @@ export const HomePage: React.FC<HomePageProps> = ({
             <span className="text-xs font-medium text-slate-500">{t.home.avgFareLabel}</span>
           </div>
 
-          <div className="space-y-3.5">
-            {fareComparisonBars.map((bar) => {
-              const fromName = getLocalizedName(governorates.find((g) => g.id === bar.from));
-              const toName = getLocalizedName(governorates.find((g) => g.id === bar.to));
-              return (
-                <button
-                  key={`${bar.from}-${bar.to}`}
-                  type="button"
-                  onClick={() => {
-                    setDepartureGovId(bar.from);
-                    setDestinationGovId(bar.to);
-                    scrollToSection('available-trips');
-                  }}
-                  className="w-full text-start group space-y-1.5 cursor-pointer"
-                >
-                  <div className="flex items-center justify-between text-xs sm:text-sm">
-                    <span className="font-semibold text-[#05203C] group-hover:text-[#0770E3] transition-colors inline-flex items-center gap-1.5">
-                      <span>{fromName}</span>
-                      <RouteArrow className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{toName}</span>
-                    </span>
-                    <span className="font-mono font-bold text-[#05203C] tabular-nums">
-                      {formatIqd(bar.avgFare)}
-                    </span>
-                  </div>
-                  <div className="w-full h-2.5 bg-[#EFF6FF] rounded-full overflow-hidden border border-[#E0E4E8]">
-                    <div
-                      className="h-full bg-[#0770E3] rounded-full transition-all duration-500 group-hover:bg-[#0559B8]"
-                      style={{ width: `${bar.pct}%` }}
-                    />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          {fareComparisonBars.length === 0 ? (
+            <div className="rounded-xl bg-[#F7F9FB] border border-[#E0E4E8] p-4 text-xs sm:text-sm text-slate-600">
+              {t.home.noFareDataYet}
+            </div>
+          ) : (
+            <div className="space-y-3.5">
+              {fareComparisonBars.map((bar) => {
+                const fromName = getLocalizedName(governorates.find((g) => g.id === bar.from));
+                const toName = getLocalizedName(governorates.find((g) => g.id === bar.to));
+                return (
+                  <button
+                    key={`${bar.from}-${bar.to}`}
+                    type="button"
+                    onClick={() => {
+                      setDepartureGovId(bar.from);
+                      setDestinationGovId(bar.to);
+                      scrollToSection('available-trips');
+                    }}
+                    className="w-full text-start group space-y-1.5 cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between text-xs sm:text-sm">
+                      <span className="font-semibold text-[#05203C] group-hover:text-[#0770E3] transition-colors inline-flex items-center gap-1.5">
+                        <span>{fromName}</span>
+                        <RouteArrow className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{toName}</span>
+                      </span>
+                      <span className="font-mono font-bold text-[#05203C] tabular-nums">
+                        {formatIqd(bar.avgFare)}
+                      </span>
+                    </div>
+                    <div className="w-full h-2.5 bg-[#EFF6FF] rounded-full overflow-hidden border border-[#E0E4E8]">
+                      <div
+                        className="h-full bg-[#0770E3] rounded-full transition-all duration-500 group-hover:bg-[#0559B8]"
+                        style={{ width: `${bar.pct}%` }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
 
       {/* 4. AVAILABLE TRIPS WITH CATEGORY FILTER PILLS */}
       <section ref={tripsSectionRef} id="available-trips" className="max-w-7xl mx-auto px-4 sm:px-6 py-10 w-full">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-5">
-          <div>
+          <SectionReveal>
             <h2 className="text-xl sm:text-2xl font-bold text-[#05203C] tracking-tight">
               {t.home.availableTripsTitle}
             </h2>
             <p className="text-sm text-slate-600 mt-1">{t.home.availableTripsSub}</p>
-          </div>
+          </SectionReveal>
 
           <div className="flex items-center gap-3 text-sm">
             <span className="font-mono font-semibold text-[#05203C] tabular-nums">
@@ -734,7 +773,6 @@ export const HomePage: React.FC<HomePageProps> = ({
                   currentUserId={firebaseUser?.uid}
                   onBook={handleBookClick}
                   onSeatAlert={handleSeatAlert}
-                  onResetDemo={tr.isSampleDemo ? resetDemoTrip : undefined}
                 />
               </div>
             ))}
@@ -745,12 +783,12 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* 5. GOVERNORATE HOME-PICKUP COVERAGE GRID */}
       <section ref={providersRef} id="providers" className="bg-[#F7F9FB] border-y border-[#E0E4E8] py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-6">
-          <div>
+          <SectionReveal>
             <h2 className="text-xl sm:text-2xl font-bold text-[#05203C] tracking-tight">
               {t.home.partnersTitle}
             </h2>
             <p className="text-sm text-slate-600 mt-1">{t.home.partnersSub}</p>
-          </div>
+          </SectionReveal>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
             {governorates.slice(0, 8).map((gov) => {
@@ -764,7 +802,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     setDestinationGovId('');
                     scrollToSection('available-trips');
                   }}
-                  className="gsap-provider-card bg-white border border-[#E0E4E8] rounded-[12px] p-4 text-start hover:border-[#0770E3] transition-colors cursor-pointer flex items-center gap-3.5"
+                  className="gsap-provider-card surface-card-interactive bg-white border border-[#E0E4E8] rounded-[12px] p-4 text-start hover:border-[#0770E3] transition-colors cursor-pointer flex items-center gap-3.5"
                 >
                   <div className="w-11 h-11 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[#05203C] flex flex-col items-center justify-center shrink-0">
                     <MapPin className="w-4 h-4 text-[#0770E3]" />
@@ -793,10 +831,12 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* 7. HORIZONTAL RATING BARS, VERIFIED DRIVERS & RIDER REVIEWS */}
       <section id="ratings" className="max-w-7xl mx-auto px-4 sm:px-6 py-12 w-full space-y-10">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-[#05203C] tracking-tight">
-            {t.home.ratingBreakdownTitle}
-          </h2>
-          <p className="text-sm text-slate-600 mt-1">{t.home.reviewsSub}</p>
+          <SectionReveal>
+            <h2 className="text-xl sm:text-2xl font-bold text-[#05203C] tracking-tight">
+              {t.home.ratingBreakdownTitle}
+            </h2>
+            <p className="text-sm text-slate-600 mt-1">{t.home.reviewsSub}</p>
+          </SectionReveal>
 
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
             {/* Score Summary + Horizontal Rating Bars */}
@@ -816,7 +856,14 @@ export const HomePage: React.FC<HomePageProps> = ({
                 </div>
                 <div className="flex items-center gap-1">
                   {[1, 2, 3, 4, 5].map((n) => (
-                    <Star key={n} className="w-5 h-5 text-amber-500 fill-amber-500" />
+                    <Star
+                      key={n}
+                      className={`w-5 h-5 ${
+                        n <= Math.round(avgRatingScore)
+                          ? 'text-amber-500 fill-amber-500'
+                          : 'text-slate-300'
+                      }`}
+                    />
                   ))}
                 </div>
               </div>
@@ -843,7 +890,11 @@ export const HomePage: React.FC<HomePageProps> = ({
 
             {/* Verified Drivers & Reviews Cards */}
             <div className="lg:col-span-7 space-y-4">
-              {publicDrivers.length > 0 && (
+              {publicDrivers.length === 0 ? (
+                <div className="bg-white border border-[#E0E4E8] rounded-[12px] p-5 text-sm text-slate-600">
+                  {t.home.noDriversYet}
+                </div>
+              ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   {publicDrivers.slice(0, 2).map((drv) => {
                     const gov = governorates.find((g) => g.id === drv.governorateId);
@@ -864,7 +915,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                           </div>
                           <span className="inline-flex items-center gap-1 text-xs font-bold text-[#05203C] tabular-nums">
                             <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                            {(drv.ratingAvg || 5).toFixed(1)}
+                            {(drv.ratingCount > 0 ? drv.ratingAvg : 0).toFixed(1)}
                           </span>
                         </div>
                         <div className="text-xs text-slate-500 tabular-nums">
@@ -1011,7 +1062,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* 9. LOYALTY REWARDS & DRIVER REGISTRATION STRIP */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 py-12 w-full space-y-6">
         <div id="loyalty-section" className="bg-white border border-[#E0E4E8] rounded-[12px] p-6 sm:p-7 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-          <div className="lg:col-span-5 space-y-3">
+          <SectionReveal className="lg:col-span-5 space-y-3">
             <div className="inline-flex items-center gap-2 text-xs font-semibold text-[#0770E3]">
               <Award className="w-4 h-4" />
               <span>{t.nav.loyalty}</span>
@@ -1023,11 +1074,11 @@ export const HomePage: React.FC<HomePageProps> = ({
             <button
               type="button"
               onClick={() => (firebaseUser ? onNavigate('passenger') : onOpenAuthWithRole('passenger'))}
-              className="px-4 py-2.5 bg-[#0770E3] text-white text-sm font-semibold rounded-lg hover:bg-[#0559B8] transition-colors cursor-pointer"
+              className="btn-tactile px-4 py-2.5 bg-[#0770E3] text-white text-sm font-semibold rounded-lg hover:bg-[#0559B8] transition-colors cursor-pointer"
             >
               {t.home.loyaltyCta}
             </button>
-          </div>
+          </SectionReveal>
 
           <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-3.5">
             <div className="bg-[#F7F9FB] border border-[#E0E4E8] rounded-[12px] p-4 space-y-1.5">
@@ -1083,7 +1134,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               <button
                 type="button"
                 onClick={() => (firebaseUser ? onNavigate('driver') : onOpenAuthWithRole('driver'))}
-                className="px-5 py-2.5 bg-[#0770E3] text-white text-sm font-semibold rounded-lg hover:bg-[#0559B8] transition-colors cursor-pointer"
+                className="btn-tactile px-5 py-2.5 bg-[#0770E3] text-white text-sm font-semibold rounded-lg hover:bg-[#0559B8] transition-colors cursor-pointer"
               >
                 {t.home.becomeDriverCta}
               </button>
@@ -1099,19 +1150,24 @@ export const HomePage: React.FC<HomePageProps> = ({
                 {t.home.supportTitle}
               </h2>
               <p className="text-sm text-slate-600 leading-relaxed">{t.home.supportSub}</p>
-              <div className="text-xs font-mono text-[#05203C] space-y-1 pt-1" dir="ltr">
-                <div>{settings.supportPhone || '+964 770 000 4455'}</div>
-                <div>{settings.supportEmail || 'support@masar-iraq.iq'}</div>
+              <div className="pt-1" dir="ltr">
+                <a
+                  href={`tel:${SUPPORT_PHONE_NUMBER}`}
+                  className="inline-block text-sm font-mono font-bold text-[#05203C] hover:text-[#0770E3] transition-colors tabular-nums"
+                >
+                  {SUPPORT_PHONE_NUMBER}
+                </a>
               </div>
             </div>
             <div>
-              <button
-                type="button"
-                onClick={() => onNavigate('contact')}
-                className="px-4 py-2.5 bg-white border border-[#CBD5E1] text-[#05203C] text-sm font-semibold rounded-lg hover:border-[#05203C] transition-colors cursor-pointer"
+              <a
+                href={SUPPORT_WHATSAPP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-tactile inline-flex items-center justify-center px-4 py-2.5 bg-white border border-[#CBD5E1] text-[#05203C] text-sm font-semibold rounded-lg hover:border-[#0770E3] hover:text-[#0770E3] transition-colors cursor-pointer"
               >
                 {t.home.supportContactBtn}
-              </button>
+              </a>
             </div>
           </div>
         </div>
@@ -1213,9 +1269,20 @@ export const HomePage: React.FC<HomePageProps> = ({
             <span>
               © {new Date().getFullYear()} {t.home.copyright}
             </span>
-            <span>
-              {t.hero.governoratesCount} {t.hero.statGovernorates}
-            </span>
+            <div className="flex items-center gap-4">
+              <span>
+                {t.hero.governoratesCount} {t.hero.statGovernorates}
+              </span>
+              {onOpenAdminCode && (
+                <button
+                  type="button"
+                  onClick={onOpenAdminCode}
+                  className="text-white/55 hover:text-white transition-colors underline underline-offset-4 cursor-pointer"
+                >
+                  {t.admin.adminAccessBtn}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </footer>

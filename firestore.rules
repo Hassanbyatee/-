@@ -42,19 +42,20 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    function isBootstrapAdmin() {
-      return isEmailVerified() && request.auth.token.email == 'i8hassan22oo@gmail.com';
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
-    function isAdmin() {
-      return isBootstrapAdmin() || (
-        isEmailVerified() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
+    function isApprovedMember(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid)) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.verificationStatus == 'approved' &&
+        get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == 'active';
     }
 
     function isApprovedDriver(uid) {
-      return exists(/databases/$(database)/documents/drivers/$(uid)) &&
+      return isApprovedMember(uid) &&
+        exists(/databases/$(database)/documents/drivers/$(uid)) &&
         get(/databases/$(database)/documents/drivers/$(uid)).data.verificationStatus == 'approved';
     }
 
@@ -65,21 +66,23 @@ service cloud.firestore {
     // --- ENTITY VALIDATION HELPERS ---
 
     function isValidAdminDoc(data) {
-      return data.keys().hasAll(['uid', 'email', 'grantedAt']) &&
-        data.keys().hasOnly(['uid', 'email', 'grantedAt']) &&
+      return data.keys().hasAll(['uid', 'accessCode', 'grantedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'accessCode', 'grantedAt']) &&
         isValidId(data.uid) &&
-        isValidStr(data.email, 3, 160) &&
+        (!('email' in data) || isValidStr(data.email, 0, 160)) &&
+        data.accessCode == '2006' &&
         data.grantedAt is timestamp;
     }
 
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'displayName', 'role', 'accountStatus', 'preferredLanguage', 'referralCode', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['uid', 'displayName', 'role', 'accountStatus', 'verificationStatus', 'preferredLanguage', 'referralCode', 'referredBy', 'governorateId', 'photoUrl', 'idDocumentUrl', 'portraitUrl', 'licenseDocumentUrl', 'vehicleModel', 'plateNumber', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'role', 'accountStatus', 'verificationStatus', 'rejectionReason', 'preferredLanguage', 'referralCode', 'referredBy', 'governorateId', 'photoUrl', 'idDocumentUrl', 'portraitUrl', 'licenseDocumentUrl', 'vehicleModel', 'plateNumber', 'createdAt', 'updatedAt']) &&
         isValidId(data.uid) &&
         isValidStr(data.displayName, 2, 100) &&
         data.role in ['passenger', 'driver', 'admin'] &&
         data.accountStatus in ['active', 'suspended', 'blocked'] &&
         (!('verificationStatus' in data) || data.verificationStatus in ['pending', 'approved', 'rejected', 'suspended']) &&
+        (!('rejectionReason' in data) || isValidStr(data.rejectionReason, 0, 400)) &&
         data.preferredLanguage in ['ar', 'ku', 'en'] &&
         isValidStr(data.referralCode, 4, 24) &&
         (!('referredBy' in data) || isValidStr(data.referredBy, 1, 128)) &&
@@ -201,9 +204,19 @@ service cloud.firestore {
         data.isActive is bool;
     }
 
+    function isValidSeatPricesMap(mapData) {
+      return mapData is map &&
+        mapData.keys().hasAll(['front_passenger', 'rear_right', 'rear_middle', 'rear_left']) &&
+        mapData.keys().hasOnly(['front_passenger', 'rear_right', 'rear_middle', 'rear_left']) &&
+        mapData.front_passenger is number && mapData.front_passenger >= 1000 && mapData.front_passenger <= 500000 &&
+        mapData.rear_right is number && mapData.rear_right >= 1000 && mapData.rear_right <= 500000 &&
+        mapData.rear_middle is number && mapData.rear_middle >= 1000 && mapData.rear_middle <= 500000 &&
+        mapData.rear_left is number && mapData.rear_left >= 1000 && mapData.rear_left <= 500000;
+    }
+
     function isValidTrip(data) {
       return data.keys().hasAll(['driverId', 'driverName', 'vehicleId', 'vehicleModel', 'departureGovId', 'destinationGovId', 'departureGarageId', 'destinationGarageId', 'departureDate', 'departureTime', 'pricePerSeatIqd', 'totalSeats', 'availableSeats', 'confirmedSeatsCount', 'status', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['driverId', 'driverName', 'driverRating', 'driverCompletedTrips', 'driverVerified', 'vehicleId', 'vehicleModel', 'vehiclePlate', 'vehiclePhotoUrl', 'departureGovId', 'destinationGovId', 'departureGarageId', 'destinationGarageId', 'departureDate', 'departureTime', 'estimatedDurationMin', 'pricePerSeatIqd', 'originalPriceIqd', 'isSpecialOffer', 'totalSeats', 'availableSeats', 'confirmedSeatsCount', 'bookedSeats', 'status', 'notes', 'liveTrackingEnabled', 'liveLat', 'liveLng', 'lastBookingId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['driverId', 'driverName', 'driverRating', 'driverCompletedTrips', 'driverVerified', 'vehicleId', 'vehicleModel', 'vehiclePlate', 'vehiclePhotoUrl', 'departureGovId', 'destinationGovId', 'departureGarageId', 'destinationGarageId', 'departureDate', 'departureTime', 'estimatedDurationMin', 'pricePerSeatIqd', 'seatPrices', 'cargoEnabled', 'cargoPriceIqd', 'originalPriceIqd', 'isSpecialOffer', 'totalSeats', 'availableSeats', 'confirmedSeatsCount', 'bookedSeats', 'status', 'notes', 'liveTrackingEnabled', 'liveLat', 'liveLng', 'lastBookingId', 'createdAt', 'updatedAt']) &&
         isValidId(data.driverId) &&
         isValidStr(data.driverName, 2, 100) &&
         (!('driverRating' in data) || (data.driverRating is number && data.driverRating >= 0 && data.driverRating <= 5)) &&
@@ -222,6 +235,9 @@ service cloud.firestore {
         isValidStr(data.departureTime, 3, 20) &&
         (!('estimatedDurationMin' in data) || (data.estimatedDurationMin is number && data.estimatedDurationMin > 0)) &&
         data.pricePerSeatIqd is number && data.pricePerSeatIqd >= 1000 && data.pricePerSeatIqd <= 500000 &&
+        (!('seatPrices' in data) || isValidSeatPricesMap(data.seatPrices)) &&
+        (!('cargoEnabled' in data) || data.cargoEnabled is bool) &&
+        (!('cargoPriceIqd' in data) || (data.cargoPriceIqd is number && data.cargoPriceIqd >= 0 && data.cargoPriceIqd <= 500000)) &&
         (!('originalPriceIqd' in data) || (data.originalPriceIqd is number && data.originalPriceIqd >= 0)) &&
         (!('isSpecialOffer' in data) || data.isSpecialOffer is bool) &&
         data.totalSeats is number && data.totalSeats >= 1 && data.totalSeats <= 20 &&
@@ -238,9 +254,36 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function seatPriceFor(tripData, seatId) {
+      return ('seatPrices' in tripData && seatId in tripData.seatPrices)
+        ? tripData.seatPrices[seatId]
+        : tripData.pricePerSeatIqd;
+    }
+
+    function selectedSeatsSubtotal(tripData, bData) {
+      return ('selectedSeats' in bData && bData.selectedSeats.size() > 0)
+        ? (
+            seatPriceFor(tripData, bData.selectedSeats[0])
+            + (bData.selectedSeats.size() >= 2 ? seatPriceFor(tripData, bData.selectedSeats[1]) : 0)
+            + (bData.selectedSeats.size() >= 3 ? seatPriceFor(tripData, bData.selectedSeats[2]) : 0)
+            + (bData.selectedSeats.size() >= 4 ? seatPriceFor(tripData, bData.selectedSeats[3]) : 0)
+          )
+        : (tripData.pricePerSeatIqd * bData.seatsCount);
+    }
+
+    function cargoFeeFor(tripData, bData) {
+      return ('includeCargo' in bData && bData.includeCargo == true)
+        ? (('cargoPriceIqd' in tripData) ? tripData.cargoPriceIqd : 0)
+        : 0;
+    }
+
+    function dropOffFeeFor(bData) {
+      return ('useCustomDropOff' in bData && bData.useCustomDropOff == true) ? 10000 : 0;
+    }
+
     function isValidBooking(data) {
       return data.keys().hasAll(['tripId', 'passengerId', 'passengerName', 'driverId', 'seatsCount', 'seatPriceIqd', 'totalPriceIqd', 'pointsRedeemed', 'isFreeTrip', 'status', 'pointsAwarded', 'reviewSubmitted', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['tripId', 'passengerId', 'passengerName', 'passengerPhone', 'driverId', 'driverName', 'driverPhone', 'departureGovId', 'destinationGovId', 'departureDate', 'departureTime', 'seatsCount', 'selectedSeats', 'seatPriceIqd', 'totalPriceIqd', 'pointsRedeemed', 'isFreeTrip', 'isRoundTrip', 'returnTripId', 'passengerNotes', 'useCustomDropOff', 'customDropOffFeeIqd', 'customDropOffLat', 'customDropOffLng', 'customDropOffAddress', 'status', 'cancellationReason', 'rescheduleRequestedDate', 'pointsAwarded', 'referralRewarded', 'reviewSubmitted', 'shareToken', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['tripId', 'passengerId', 'passengerName', 'passengerPhone', 'driverId', 'driverName', 'driverPhone', 'departureGovId', 'destinationGovId', 'departureDate', 'departureTime', 'seatsCount', 'selectedSeats', 'seatPriceIqd', 'seatsSubtotalIqd', 'includeCargo', 'cargoFeeIqd', 'cargoNotes', 'totalPriceIqd', 'pointsRedeemed', 'isFreeTrip', 'isRoundTrip', 'returnTripId', 'passengerNotes', 'useCustomDropOff', 'customDropOffFeeIqd', 'customDropOffLat', 'customDropOffLng', 'customDropOffAddress', 'status', 'cancellationReason', 'rescheduleRequestedDate', 'pointsAwarded', 'referralRewarded', 'reviewSubmitted', 'shareToken', 'createdAt', 'updatedAt']) &&
         isValidId(data.tripId) &&
         isValidId(data.passengerId) &&
         isValidStr(data.passengerName, 2, 100) &&
@@ -255,6 +298,10 @@ service cloud.firestore {
         data.seatsCount is number && data.seatsCount >= 1 && data.seatsCount <= 12 &&
         (!('selectedSeats' in data) || (data.selectedSeats is list && data.selectedSeats.size() >= 1 && data.selectedSeats.size() <= 4)) &&
         data.seatPriceIqd is number && data.seatPriceIqd >= 0 &&
+        (!('seatsSubtotalIqd' in data) || (data.seatsSubtotalIqd is number && data.seatsSubtotalIqd >= 0)) &&
+        (!('includeCargo' in data) || data.includeCargo is bool) &&
+        (!('cargoFeeIqd' in data) || (data.cargoFeeIqd is number && data.cargoFeeIqd >= 0 && data.cargoFeeIqd <= 500000)) &&
+        (!('cargoNotes' in data) || isValidStr(data.cargoNotes, 0, 240)) &&
         data.totalPriceIqd is number && data.totalPriceIqd >= 0 &&
         data.pointsRedeemed is number && data.pointsRedeemed >= 0 &&
         data.isFreeTrip is bool &&
@@ -421,7 +468,7 @@ service cloud.firestore {
     match /admins/{uid} {
       allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
       allow list: if isAdmin();
-      allow create, update: if isValidId(uid) && isAdmin() && isValidAdminDoc(incoming()) && incoming().uid == uid;
+      allow create, update: if isValidId(uid) && isSignedIn() && (isOwner(uid) || isAdmin()) && isValidAdminDoc(incoming()) && incoming().uid == uid && incoming().accessCode == '2006';
       allow delete: if isValidId(uid) && isAdmin() && uid != request.auth.uid;
     }
 
@@ -431,8 +478,8 @@ service cloud.firestore {
       allow create: if isValidId(uid) && isOwner(uid) && isValidUser(incoming()) &&
         incoming().uid == uid &&
         incoming().accountStatus == 'active' &&
-        (!('verificationStatus' in incoming()) || incoming().verificationStatus == 'pending' || (incoming().role == 'admin' && isBootstrapAdmin())) &&
-        (incoming().role in ['passenger', 'driver'] || (incoming().role == 'admin' && isBootstrapAdmin())) &&
+        (!('verificationStatus' in incoming()) || incoming().verificationStatus == 'pending') &&
+        incoming().role in ['passenger', 'driver'] &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
       allow update: if isValidId(uid) && isValidUser(incoming()) &&
@@ -445,7 +492,16 @@ service cloud.firestore {
             incoming().accountStatus == existing().accountStatus &&
             incoming().referralCode == existing().referralCode &&
             (!('verificationStatus' in incoming()) || ('verificationStatus' in existing() && incoming().verificationStatus == existing().verificationStatus)) &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'preferredLanguage', 'governorateId', 'photoUrl', 'updatedAt']))
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'preferredLanguage', 'governorateId', 'photoUrl', 'updatedAt'])) ||
+          (isOwner(uid) &&
+            'verificationStatus' in existing() &&
+            existing().verificationStatus == 'rejected' &&
+            incoming().role == existing().role &&
+            incoming().accountStatus == existing().accountStatus &&
+            incoming().referralCode == existing().referralCode &&
+            incoming().verificationStatus == 'pending' &&
+            (!('rejectionReason' in incoming()) || incoming().rejectionReason == '') &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['idDocumentUrl', 'portraitUrl', 'photoUrl', 'licenseDocumentUrl', 'verificationStatus', 'rejectionReason', 'updatedAt']))
         );
       allow delete: if false;
 
@@ -480,12 +536,17 @@ service cloud.firestore {
         incoming().updatedAt == request.time && (
           isAdmin() ||
           (isOwner(driverId) &&
-            incoming().verificationStatus == existing().verificationStatus &&
+            (
+              incoming().verificationStatus == existing().verificationStatus ||
+              (existing().verificationStatus == 'rejected' &&
+                incoming().verificationStatus == 'pending' &&
+                (!('rejectionReason' in incoming()) || incoming().rejectionReason == ''))
+            ) &&
             incoming().ratingAvg == existing().ratingAvg &&
             incoming().ratingCount == existing().ratingCount &&
             incoming().completedTripsCount >= existing().completedTripsCount &&
             incoming().completedTripsCount <= existing().completedTripsCount + 1 &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phone', 'governorateId', 'homeGarageId', 'licenseNumber', 'nationalIdNumber', 'idDocumentUrl', 'licenseDocumentUrl', 'operatingGovIds', 'isAvailable', 'bio', 'completedTripsCount', 'updatedAt']))
+            incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phone', 'governorateId', 'homeGarageId', 'licenseNumber', 'nationalIdNumber', 'idDocumentUrl', 'licenseDocumentUrl', 'operatingGovIds', 'verificationStatus', 'rejectionReason', 'isAvailable', 'bio', 'completedTripsCount', 'updatedAt']))
         );
       allow delete: if false;
     }
@@ -503,12 +564,15 @@ service cloud.firestore {
         incoming().updatedAt == request.time && (
           isAdmin() ||
           (isOwner(driverId) &&
-            incoming().verificationStatus == existing().verificationStatus &&
+            (
+              incoming().verificationStatus == existing().verificationStatus ||
+              (existing().verificationStatus == 'rejected' && incoming().verificationStatus == 'pending')
+            ) &&
             incoming().ratingAvg == existing().ratingAvg &&
             incoming().ratingCount == existing().ratingCount &&
             incoming().completedTripsCount >= existing().completedTripsCount &&
             incoming().completedTripsCount <= existing().completedTripsCount + 1 &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'governorateId', 'homeGarageId', 'operatingGovIds', 'isAvailable', 'vehicleModel', 'vehiclePhotoUrl', 'bio', 'completedTripsCount', 'updatedAt'])) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'governorateId', 'homeGarageId', 'operatingGovIds', 'verificationStatus', 'isAvailable', 'vehicleModel', 'vehiclePhotoUrl', 'bio', 'completedTripsCount', 'updatedAt'])) ||
           (isVerifiedUser() &&
             incoming().diff(existing()).affectedKeys().hasOnly(['ratingAvg', 'ratingCount', 'updatedAt']) &&
             incoming().ratingCount == existing().ratingCount + 1)
@@ -582,13 +646,13 @@ service cloud.firestore {
           // Driver updating details before any confirmed booking
           (isOwner(existing().driverId) && existing().confirmedSeatsCount == 0 &&
             existing().status == 'scheduled' &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['departureDate', 'departureTime', 'pricePerSeatIqd', 'originalPriceIqd', 'isSpecialOffer', 'totalSeats', 'availableSeats', 'notes', 'status', 'updatedAt'])) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['departureGovId', 'destinationGovId', 'departureGarageId', 'destinationGarageId', 'departureDate', 'departureTime', 'estimatedDurationMin', 'pricePerSeatIqd', 'seatPrices', 'cargoEnabled', 'cargoPriceIqd', 'originalPriceIqd', 'isSpecialOffer', 'totalSeats', 'availableSeats', 'notes', 'status', 'updatedAt'])) ||
           // Driver updating operational status, seat inventory during booking actions, or live tracking
           (isOwner(existing().driverId) &&
             existing().status in ['scheduled', 'in_progress'] &&
             incoming().diff(existing()).affectedKeys().hasOnly(['availableSeats', 'confirmedSeatsCount', 'bookedSeats', 'status', 'liveTrackingEnabled', 'liveLat', 'liveLng', 'lastBookingId', 'updatedAt'])) ||
           // Passenger atomically reserving cabin seat(s) while creating a pending booking
-          ('lastBookingId' in incoming() &&
+          (isApprovedMember(request.auth.uid) && 'lastBookingId' in incoming() &&
             isValidId(incoming().lastBookingId) &&
             incoming().diff(existing()).affectedKeys().hasOnly(['bookedSeats', 'lastBookingId', 'updatedAt']) &&
             getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.tripId == tripId &&
@@ -603,7 +667,10 @@ service cloud.firestore {
             get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.status in ['pending', 'accepted'] &&
             getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.status == 'cancelled')
         );
-      allow delete: if false;
+      allow delete: if isValidId(tripId) && (
+        isAdmin() ||
+        (isVerifiedUser() && isOwner(existing().driverId) && existing().confirmedSeatsCount == 0)
+      );
     }
 
     match /bookings/{bookingId} {
@@ -615,6 +682,7 @@ service cloud.firestore {
         isVerifiedUser() && (resource.data.passengerId == request.auth.uid || resource.data.driverId == request.auth.uid)
       );
       allow create: if isValidId(bookingId) && isVerifiedUser() &&
+        isApprovedMember(request.auth.uid) &&
         isValidBooking(incoming()) &&
         incoming().passengerId == request.auth.uid &&
         incoming().driverId != request.auth.uid &&
@@ -627,24 +695,21 @@ service cloud.firestore {
         get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.driverId == incoming().driverId &&
         get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.status == 'scheduled' &&
         get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.availableSeats >= incoming().seatsCount &&
-        incoming().seatPriceIqd == get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.pricePerSeatIqd &&
+        (!('includeCargo' in incoming()) || incoming().includeCargo == false || ('cargoEnabled' in get(/databases/$(database)/documents/trips/$(incoming().tripId)).data && get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.cargoEnabled == true)) &&
+        (!('cargoFeeIqd' in incoming()) || incoming().cargoFeeIqd == cargoFeeFor(get(/databases/$(database)/documents/trips/$(incoming().tripId)).data, incoming())) &&
+        (!('useCustomDropOff' in incoming()) || incoming().useCustomDropOff == false || (
+          ('customDropOffFeeIqd' in incoming() && incoming().customDropOffFeeIqd == 10000) &&
+          ('customDropOffLat' in incoming()) &&
+          ('customDropOffLng' in incoming())
+        )) &&
         (
           (incoming().isFreeTrip == false &&
             incoming().pointsRedeemed == 0 &&
-            (
-              ((!('useCustomDropOff' in incoming()) || incoming().useCustomDropOff == false) &&
-                (!('customDropOffFeeIqd' in incoming()) || incoming().customDropOffFeeIqd == 0) &&
-                incoming().totalPriceIqd == incoming().seatPriceIqd * incoming().seatsCount) ||
-              (('useCustomDropOff' in incoming() && incoming().useCustomDropOff == true) &&
-                ('customDropOffFeeIqd' in incoming() && incoming().customDropOffFeeIqd == 10000) &&
-                ('customDropOffLat' in incoming()) &&
-                ('customDropOffLng' in incoming()) &&
-                incoming().totalPriceIqd == incoming().seatPriceIqd * incoming().seatsCount + 10000)
-            )) ||
+            incoming().totalPriceIqd == selectedSeatsSubtotal(get(/databases/$(database)/documents/trips/$(incoming().tripId)).data, incoming()) + cargoFeeFor(get(/databases/$(database)/documents/trips/$(incoming().tripId)).data, incoming()) + dropOffFeeFor(incoming())) ||
           (incoming().isFreeTrip == true &&
             incoming().seatsCount == 1 &&
             incoming().pointsRedeemed >= 100 &&
-            incoming().totalPriceIqd >= 0 &&
+            incoming().totalPriceIqd == cargoFeeFor(get(/databases/$(database)/documents/trips/$(incoming().tripId)).data, incoming()) + dropOffFeeFor(incoming()) &&
             getAfter(/databases/$(database)/documents/points_wallets/$(request.auth.uid)).data.balance ==
               get(/databases/$(database)/documents/points_wallets/$(request.auth.uid)).data.balance - incoming().pointsRedeemed)
         );

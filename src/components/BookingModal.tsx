@@ -1,17 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Award, Banknote, MapPin, Repeat, RotateCcw, X } from 'lucide-react';
+import { AlertTriangle, Award, Banknote, MapPin, Package, Repeat, X } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
 import { createBookingTransaction, CUSTOM_DROPOFF_FEE_IQD } from '../services/platformService';
 import { AnimatedModalShell } from './motion/KineticPrimitives';
 import { CarCabinSeatSelector } from './CarCabinSeatSelector';
 import { DropOffMapPicker } from './DropOffMapPicker';
-import type { CabinSeatId, Trip } from '../types/domain';
+import {
+  getTripMinSeatPrice,
+  getTripSeatPrice,
+  resolveTripSeatPrices,
+  type CabinSeatId,
+  type Trip,
+} from '../types/domain';
 
 interface BookingModalProps {
   trip: Trip | null;
   onClose: () => void;
-  onSuccess: (isDemo?: boolean, dropOffCoords?: { lat: number; lng: number } | null) => void;
+  onSuccess: (dropOffCoords?: { lat: number; lng: number } | null) => void;
 }
 
 const ALL_CABIN_SEATS: CabinSeatId[] = ['front_passenger', 'rear_right', 'rear_middle', 'rear_left'];
@@ -19,7 +25,7 @@ const LEGACY_FILL_ORDER: CabinSeatId[] = ['rear_left', 'rear_right', 'rear_middl
 
 export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, onClose, onSuccess }) => {
   const { getLocalizedName, formatIqd, t } = useI18n();
-  const { userProfile, privateInfo, wallet, settings, governorates, trips, bookDemoTrip, resetDemoTrip } = useAuth();
+  const { userProfile, privateInfo, wallet, settings, governorates, trips } = useAuth();
 
   const trip = useMemo(
     () => (initialTrip ? trips.find((tr) => tr.id === initialTrip.id) || initialTrip : null),
@@ -30,6 +36,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
   const [useCustomDropOff, setUseCustomDropOff] = useState(false);
   const [dropOffCoords, setDropOffCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [dropOffAddress, setDropOffAddress] = useState('');
+  const [includeCargo, setIncludeCargo] = useState(false);
+  const [cargoNotes, setCargoNotes] = useState('');
   const [redeemFreeTrip, setRedeemFreeTrip] = useState(false);
   const [roundTripEnabled, setRoundTripEnabled] = useState(false);
   const [returnTripId, setReturnTripId] = useState('');
@@ -56,6 +64,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
       setUseCustomDropOff(false);
       setDropOffCoords(null);
       setDropOffAddress('');
+      setIncludeCargo(false);
+      setCargoNotes('');
       setRedeemFreeTrip(false);
       setRoundTripEnabled(false);
       setReturnTripId('');
@@ -74,6 +84,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
     setUseCustomDropOff(false);
     setDropOffCoords(null);
     setDropOffAddress('');
+    setIncludeCargo(false);
+    setCargoNotes('');
     setRedeemFreeTrip(false);
     setRoundTripEnabled(false);
     setReturnTripId('');
@@ -119,7 +131,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
     );
   }, [trip, trips, seatsCount, userProfile?.uid]);
 
-  const isOpen = Boolean(trip && (userProfile || trip.isSampleDemo));
+  const isOpen = Boolean(trip && userProfile);
+  const isPassengerApproved =
+    userProfile?.verificationStatus === 'approved' && userProfile?.accountStatus === 'active';
 
   const depGov = trip ? governorates.find((g) => g.id === trip.departureGovId) : undefined;
   const dstGov = trip ? governorates.find((g) => g.id === trip.destinationGovId) : undefined;
@@ -127,18 +141,30 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
     ? returnOptions.find((r) => r.id === returnTripId) || null
     : null;
 
+  const tripSeatPrices = useMemo(() => resolveTripSeatPrices(trip), [trip]);
+  const seatsSubtotalIqd = useMemo(
+    () => (trip ? selectedSeats.reduce((sum, seat) => sum + getTripSeatPrice(trip, seat), 0) : 0),
+    [trip, selectedSeats]
+  );
+  const cargoSupported = Boolean(trip?.cargoEnabled && Number(trip?.cargoPriceIqd || 0) > 0);
+  const cargoFeeIqd = cargoSupported && includeCargo ? Number(trip?.cargoPriceIqd || 0) : 0;
+
   const hasEnoughPoints = (wallet?.balance || 0) >= settings.freeTripCostPoints;
-  const withinFreeCap = trip ? trip.pricePerSeatIqd <= settings.maxFreeTripValueIqd : false;
+  const withinFreeCap = trip ? seatsSubtotalIqd <= settings.maxFreeTripValueIqd : false;
   const canRedeemPoints = hasEnoughPoints && withinFreeCap && seatsCount === 1;
 
-  const outboundCash = trip ? (redeemFreeTrip ? 0 : trip.pricePerSeatIqd * seatsCount) : 0;
+  const outboundCash = trip ? (redeemFreeTrip ? 0 : seatsSubtotalIqd) : 0;
   const customDropOffFeeIqd = useCustomDropOff ? CUSTOM_DROPOFF_FEE_IQD : 0;
-  const returnCash = selectedReturnTrip ? selectedReturnTrip.pricePerSeatIqd * seatsCount : 0;
-  const totalCashDue = outboundCash + customDropOffFeeIqd + returnCash;
+  const returnCash = selectedReturnTrip ? getTripMinSeatPrice(selectedReturnTrip) * seatsCount : 0;
+  const totalCashDue = outboundCash + cargoFeeIqd + customDropOffFeeIqd + returnCash;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!trip) return;
+    if (!trip || !userProfile) return;
+    if (!isPassengerApproved) {
+      setErrorMsg(t.errors.unapprovedUser);
+      return;
+    }
     if (selectedSeats.length === 0) {
       setErrorMsg(t.booking.selectAtLeastOneSeat);
       return;
@@ -150,13 +176,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
     setErrorMsg('');
     setSubmitting(true);
     try {
-      if (trip.isSampleDemo) {
-        bookDemoTrip(selectedSeats);
-        onSuccess(true, useCustomDropOff ? dropOffCoords : null);
-        onClose();
-        return;
-      }
-      if (!userProfile) return;
       await createBookingTransaction({
         trip,
         passenger: userProfile,
@@ -164,6 +183,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
         seatsCount: selectedSeats.length,
         selectedSeats,
         notes,
+        includeCargo: cargoSupported && includeCargo,
+        cargoNotes,
         useCustomDropOff,
         customDropOffLat: dropOffCoords?.lat,
         customDropOffLng: dropOffCoords?.lng,
@@ -172,11 +193,13 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
         settings,
         returnTrip: selectedReturnTrip,
       });
-      onSuccess(false);
+      onSuccess(useCustomDropOff ? dropOffCoords : null);
       onClose();
     } catch (err) {
       const code = err instanceof Error ? err.message : '';
-      if (code === 'INSUFFICIENT_SEATS') setErrorMsg(t.errors.insufficientSeats);
+      if (code === 'UNAPPROVED_USER') setErrorMsg(t.errors.unapprovedUser);
+      else if (code === 'CANNOT_BOOK_OWN_TRIP') setErrorMsg(t.tripCard.ownTrip);
+      else if (code === 'INSUFFICIENT_SEATS') setErrorMsg(t.errors.insufficientSeats);
       else if (code === 'SEAT_ALREADY_BOOKED') setErrorMsg(t.booking.seatAlreadyBooked);
       else if (code === 'DUPLICATE_BOOKING') setErrorMsg(t.errors.duplicateBooking);
       else if (code === 'INSUFFICIENT_POINTS') setErrorMsg(t.booking.insufficientPoints);
@@ -189,7 +212,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
 
   return (
     <AnimatedModalShell isOpen={isOpen} onClose={onClose} maxWidthClass="max-w-xl">
-      {trip && (userProfile || trip.isSampleDemo) && (
+      {trip && userProfile && (
         <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-5 relative shadow-[var(--shadow-elevated)] max-h-[90vh] overflow-y-auto">
           <button
             type="button"
@@ -201,46 +224,86 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
           </button>
 
           <div className="border-b border-slate-100 pb-4 pe-8">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-bold text-[#05203C]">{t.booking.modalTitle}</h2>
-              {trip.isSampleDemo && (
-                <span className="px-2 py-0.5 rounded-md bg-[#05203C] text-white text-[11px] font-bold">
-                  {t.tripCard.demoBadge}
-                </span>
-              )}
-            </div>
+            <h2 className="text-xl font-bold text-[#05203C]">{t.booking.modalTitle}</h2>
             <p className="text-sm text-slate-600 mt-1">
               {getLocalizedName(depGov)} → {getLocalizedName(dstGov)} ·{' '}
               <span className="font-mono tabular-nums">
                 {trip.departureDate} · {trip.departureTime}
               </span>
             </p>
-            <div className="flex flex-wrap items-center justify-between gap-2 mt-1">
-              <p className="text-xs text-[#0770E3] font-semibold">
-                {trip.vehicleModel} · {trip.availableSeats} {t.tripCard.seatsAvailable} ·{' '}
-                <span className="font-mono tabular-nums">{formatIqd(trip.pricePerSeatIqd)}</span> / {t.tripCard.perSeat}
-              </p>
-              {trip.isSampleDemo && (trip.bookedSeats?.length || 0) > 1 && (
-                <button
-                  type="button"
-                  onClick={resetDemoTrip}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#05203C] hover:text-[#0770E3] cursor-pointer"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>{t.tripCard.resetDemo}</span>
-                </button>
-              )}
-            </div>
+            <p className="text-xs text-[#0770E3] font-semibold mt-1">
+              {trip.vehicleModel} · {trip.availableSeats} {t.tripCard.seatsAvailable} ·{' '}
+              {t.map.startingFrom}{' '}
+              <span className="font-mono tabular-nums">{formatIqd(getTripMinSeatPrice(trip))}</span>
+            </p>
           </div>
 
+          {!isPassengerApproved && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 text-xs text-amber-900">
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold">{t.auth.pendingApprovalBannerTitle}</p>
+                <p className="text-amber-800">{t.errors.unapprovedUser}</p>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Interactive Top-Down 3D Car Seat Selector */}
+            {/* Interactive Top-Down 3D Car Seat Selector with Per-Seat Prices */}
             <CarCabinSeatSelector
               bookedSeats={effectiveBookedSeats}
               selectedSeats={selectedSeats}
               maxSelectable={maxSelectable}
+              seatPrices={tripSeatPrices}
               onToggleSeat={handleToggleSeat}
             />
+
+            {/* Optional Cargo / Parcels Shipping Option */}
+            {cargoSupported && (
+              <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Package className="w-4 h-4 text-[#0770E3]" />
+                  <span>{t.booking.cargoOptionTitle}</span>
+                </label>
+                <div
+                  className={`p-3.5 rounded-xl border transition-colors ${
+                    includeCargo ? 'border-[#0770E3] bg-[#EFF6FF]/60' : 'border-slate-200 bg-slate-50/70'
+                  }`}
+                >
+                  <label className="flex items-start justify-between gap-3 cursor-pointer">
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={includeCargo}
+                        onChange={(e) => setIncludeCargo(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-300 text-[#0770E3]"
+                      />
+                      <div>
+                        <div className="text-xs sm:text-sm font-semibold text-slate-900">
+                          {t.booking.cargoAddLabel}
+                        </div>
+                        <div className="text-[11px] text-slate-600 mt-0.5">
+                          {t.booking.cargoOptionDesc}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-xs sm:text-sm font-bold text-[#05203C] font-mono tabular-nums whitespace-nowrap">
+                      +{formatIqd(Number(trip?.cargoPriceIqd || 0))}
+                    </span>
+                  </label>
+                  {includeCargo && (
+                    <input
+                      type="text"
+                      maxLength={240}
+                      placeholder={t.booking.cargoNotesPlaceholder}
+                      value={cargoNotes}
+                      onChange={(e) => setCargoNotes(e.target.value)}
+                      className="mt-3 w-full px-3 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-[#0770E3]"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Arrival Drop-Off Option & Interactive Map Picker (+10,000 IQD) */}
             <div className="space-y-2.5 pt-2 border-t border-slate-100">
@@ -403,9 +466,21 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
             {/* Summary Box */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-sm">
               <div className="flex items-center justify-between text-xs text-slate-600">
-                <span>{t.booking.seatsCount}</span>
-                <span className="font-bold font-mono tabular-nums text-slate-900">{seatsCount}</span>
+                <span>
+                  {t.booking.seatsSubtotalLabel} ({seatsCount})
+                </span>
+                <span className="font-bold font-mono tabular-nums text-slate-900">
+                  {redeemFreeTrip ? formatIqd(0) : formatIqd(seatsSubtotalIqd)}
+                </span>
               </div>
+              {includeCargo && cargoFeeIqd > 0 && (
+                <div className="flex items-center justify-between text-xs text-[#0770E3]">
+                  <span className="font-semibold">{t.booking.cargoFeeLabel}</span>
+                  <span className="font-bold font-mono tabular-nums">
+                    +{formatIqd(cargoFeeIqd)}
+                  </span>
+                </div>
+              )}
               {useCustomDropOff && (
                 <div className="flex items-center justify-between text-xs text-[#0770E3]">
                   <span className="font-semibold">{t.booking.customDropOffFeeLabel}</span>
@@ -414,8 +489,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
                   </span>
                 </div>
               )}
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">{t.booking.totalDueCash}</span>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-200/70">
+                <span className="text-slate-700 font-semibold">{t.booking.totalDueCash}</span>
                 <span className="text-base font-extrabold text-[#05203C] font-mono tabular-nums">
                   {formatIqd(totalCashDue)}
                 </span>
@@ -449,7 +524,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, o
               </button>
               <button
                 type="submit"
-                disabled={submitting || selectedSeats.length === 0}
+                disabled={!isPassengerApproved || submitting || selectedSeats.length === 0}
                 className="px-5 py-2.5 text-sm font-semibold text-white bg-[#0770E3] rounded-lg hover:bg-[#0559B8] disabled:opacity-60 cursor-pointer transition-colors"
               >
                 {submitting ? t.auth.submitting : t.booking.confirmRequest}

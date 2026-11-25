@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, Clock, Mail, Phone } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clock, MessageCircle, Phone } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
+import { SUPPORT_PHONE_NUMBER, SUPPORT_WHATSAPP_URL } from '../data/iraqReferenceData';
 import { submitComplaint } from '../services/platformService';
 import type { Complaint } from '../types/domain';
 import type { AppView } from './Navbar';
@@ -14,7 +15,7 @@ interface StaticPageProps {
 
 export const StaticPages: React.FC<StaticPageProps> = ({ page, onBack, onOpenAuth }) => {
   const { dir, t } = useI18n();
-  const { firebaseUser, userProfile, settings } = useAuth();
+  const { firebaseUser, userProfile } = useAuth();
 
   const [category, setCategory] = useState<Complaint['category']>('app_issue');
   const [subject, setSubject] = useState('');
@@ -66,19 +67,29 @@ export const StaticPages: React.FC<StaticPageProps> = ({ page, onBack, onOpenAut
                 <Phone className="w-3.5 h-3.5 text-[#0770E3]" />
                 <span>{t.admin.supportPhoneLabel}</span>
               </div>
-              <div className="text-sm font-semibold font-mono text-slate-900 tabular-nums" dir="ltr">
-                {settings.supportPhone || '+964 770 000 4455'}
-              </div>
+              <a
+                href={`tel:${SUPPORT_PHONE_NUMBER}`}
+                className="inline-block text-sm font-semibold font-mono text-slate-900 hover:text-[#0770E3] tabular-nums transition-colors"
+                dir="ltr"
+              >
+                {SUPPORT_PHONE_NUMBER}
+              </a>
             </div>
 
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
               <div className="text-xs text-slate-500 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-[#0770E3]" />
-                <span>{t.admin.supportEmailLabel}</span>
+                <MessageCircle className="w-3.5 h-3.5 text-[#0770E3]" />
+                <span>{t.home.supportContactBtn}</span>
               </div>
-              <div className="text-sm font-semibold text-slate-900" dir="ltr">
-                {settings.supportEmail || 'support@masar-iraq.iq'}
-              </div>
+              <a
+                href={SUPPORT_WHATSAPP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-sm font-semibold font-mono text-[#0770E3] hover:underline tabular-nums"
+                dir="ltr"
+              >
+                {SUPPORT_PHONE_NUMBER}
+              </a>
             </div>
 
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-1">

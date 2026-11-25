@@ -2,14 +2,15 @@
   "entities": {
     "Admin": {
       "title": "Admin",
-      "description": "Trusted administrator marker document.",
+      "description": "Trusted administrator marker document unlocked via security code.",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "email": { "type": "string", "maxLength": 160 },
+        "accessCode": { "type": "string", "maxLength": 16 },
         "grantedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["uid", "email", "grantedAt"]
+      "required": ["uid", "accessCode", "grantedAt"]
     },
     "User": {
       "title": "User",
@@ -25,6 +26,7 @@
         "referredBy": { "type": "string", "maxLength": 128 },
         "governorateId": { "type": "string", "maxLength": 64 },
         "verificationStatus": { "type": "string", "enum": ["pending", "approved", "rejected", "suspended"] },
+        "rejectionReason": { "type": "string", "maxLength": 400 },
         "photoUrl": { "type": "string", "maxLength": 2000 },
         "idDocumentUrl": { "type": "string", "maxLength": 2000 },
         "portraitUrl": { "type": "string", "maxLength": 2000 },
@@ -166,6 +168,9 @@
         "departureTime": { "type": "string", "maxLength": 20 },
         "estimatedDurationMin": { "type": "number" },
         "pricePerSeatIqd": { "type": "number" },
+        "seatPrices": { "type": "object" },
+        "cargoEnabled": { "type": "boolean" },
+        "cargoPriceIqd": { "type": "number" },
         "originalPriceIqd": { "type": "number" },
         "isSpecialOffer": { "type": "boolean" },
         "totalSeats": { "type": "number" },
@@ -201,6 +206,10 @@
         "seatsCount": { "type": "number" },
         "selectedSeats": { "type": "array" },
         "seatPriceIqd": { "type": "number" },
+        "seatsSubtotalIqd": { "type": "number" },
+        "includeCargo": { "type": "boolean" },
+        "cargoFeeIqd": { "type": "number" },
+        "cargoNotes": { "type": "string", "maxLength": 240 },
         "totalPriceIqd": { "type": "number" },
         "pointsRedeemed": { "type": "number" },
         "isFreeTrip": { "type": "boolean" },

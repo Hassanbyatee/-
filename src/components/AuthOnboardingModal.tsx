@@ -16,7 +16,6 @@ import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
 import { uploadVerificationImage } from '../services/imageUtils';
 import { registerUserProfile } from '../services/platformService';
-import { BOOTSTRAP_ADMIN_EMAIL } from '../lib/firebase';
 import { AnimatedModalShell } from './motion/KineticPrimitives';
 import type { UserRole } from '../types/domain';
 
@@ -158,6 +157,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
   const {
     firebaseUser,
     userProfile,
+    profileLoaded,
     needsOnboarding,
     governorates,
     garages,
@@ -190,7 +190,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
 
   useEffect(() => {
     if (isOpen && !isSubmittingRef.current) {
-      setRole(initialRole);
+      setRole(initialRole === 'driver' ? 'driver' : 'passenger');
       setErrorMsg('');
     }
   }, [isOpen, initialRole]);
@@ -200,17 +200,21 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
     if (firebaseUser?.displayName && !displayName) {
       setDisplayName(firebaseUser.displayName);
     }
-    if (firebaseUser?.email === BOOTSTRAP_ADMIN_EMAIL && firebaseUser.emailVerified) {
-      setRole('admin');
-    }
   }, [firebaseUser, displayName]);
 
   // If existing user signs in via Google and already has Firestore profile, log them straight in
   useEffect(() => {
-    if (isOpen && firebaseUser && userProfile && !needsOnboarding && !isSubmittingRef.current) {
+    if (
+      isOpen &&
+      firebaseUser &&
+      profileLoaded &&
+      userProfile &&
+      !needsOnboarding &&
+      !isSubmittingRef.current
+    ) {
       onClose();
     }
-  }, [isOpen, firebaseUser, userProfile, needsOnboarding, onClose]);
+  }, [isOpen, firebaseUser, profileLoaded, userProfile, needsOnboarding, onClose]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -283,9 +287,6 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
 
   const canSubmitOnboarding = useMemo(() => {
     if (!firebaseUser || !hasCommonFields) return false;
-    if (role === 'admin') {
-      return Boolean(firebaseUser.email === BOOTSTRAP_ADMIN_EMAIL && firebaseUser.emailVerified);
-    }
     if (role === 'passenger') {
       return Boolean(idPhoto && portraitPhoto);
     }
@@ -341,46 +342,44 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
       let uploadedPortraitUrl = '';
       let uploadedLicenseUrl = '';
 
-      if (role !== 'admin') {
-        setProgressStep('uploading');
-        const folder = role === 'driver' ? 'drivers' : 'passengers';
-        const uploadTasks: Promise<void>[] = [];
+      setProgressStep('uploading');
+      const folder = role === 'driver' ? 'drivers' : 'passengers';
+      const uploadTasks: Promise<void>[] = [];
 
-        if (idPhoto) {
-          uploadTasks.push(
-            uploadVerificationImage(
-              idPhoto.file,
-              `verifications/${folder}/${uid}/id_card_${timestamp}.jpg`
-            ).then((url) => {
-              uploadedIdUrl = url;
-            })
-          );
-        }
-
-        if (portraitPhoto) {
-          uploadTasks.push(
-            uploadVerificationImage(
-              portraitPhoto.file,
-              `verifications/${folder}/${uid}/portrait_${timestamp}.jpg`
-            ).then((url) => {
-              uploadedPortraitUrl = url;
-            })
-          );
-        }
-
-        if (role === 'driver' && licensePhoto) {
-          uploadTasks.push(
-            uploadVerificationImage(
-              licensePhoto.file,
-              `verifications/drivers/${uid}/driving_license_${timestamp}.jpg`
-            ).then((url) => {
-              uploadedLicenseUrl = url;
-            })
-          );
-        }
-
-        await Promise.all(uploadTasks);
+      if (idPhoto) {
+        uploadTasks.push(
+          uploadVerificationImage(
+            idPhoto.file,
+            `verifications/${folder}/${uid}/id_card_${timestamp}.jpg`
+          ).then((url) => {
+            uploadedIdUrl = url;
+          })
+        );
       }
+
+      if (portraitPhoto) {
+        uploadTasks.push(
+          uploadVerificationImage(
+            portraitPhoto.file,
+            `verifications/${folder}/${uid}/portrait_${timestamp}.jpg`
+          ).then((url) => {
+            uploadedPortraitUrl = url;
+          })
+        );
+      }
+
+      if (role === 'driver' && licensePhoto) {
+        uploadTasks.push(
+          uploadVerificationImage(
+            licensePhoto.file,
+            `verifications/drivers/${uid}/driving_license_${timestamp}.jpg`
+          ).then((url) => {
+            uploadedLicenseUrl = url;
+          })
+        );
+      }
+
+      await Promise.all(uploadTasks);
 
       setProgressStep('saving');
       await registerUserProfile({
@@ -388,10 +387,10 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
         email: firebaseUser.email || '',
         displayName,
         phone,
-        role,
+        role: role === 'driver' ? 'driver' : 'passenger',
         preferredLanguage: lang,
         governorateId,
-        verificationStatus: role === 'admin' ? 'approved' : 'pending',
+        verificationStatus: 'pending',
         photoUrl: uploadedPortraitUrl || firebaseUser.photoURL || '',
         portraitUrl: uploadedPortraitUrl,
         idDocumentUrl: uploadedIdUrl,
@@ -437,10 +436,14 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-bold leading-snug">
-                {firebaseUser ? t.auth.completeProfileTitle : t.auth.welcomeTitle}
+                {!firebaseUser
+                  ? t.auth.welcomeTitle
+                  : !profileLoaded
+                  ? t.auth.checkingAccount
+                  : t.auth.completeProfileTitle}
               </h2>
               <p className="text-xs text-white/75 mt-0.5">
-                {firebaseUser ? t.auth.completeProfileSub : t.brand}
+                {!firebaseUser || !profileLoaded ? t.brand : t.auth.completeProfileSub}
               </p>
             </div>
           </div>
@@ -467,15 +470,56 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
 
         <div className="p-6 sm:p-7 overflow-y-auto space-y-5">
           {!firebaseUser ? (
-            /* STEP 1: GOOGLE SIGN-IN FIRST */
-            <div className="space-y-6 text-center py-4">
+            /* STEP 1: GOOGLE SIGN-IN ONLY WITH ROLE INTENT SELECTION */
+            <div className="space-y-5 text-center py-2">
               <div className="w-14 h-14 rounded-2xl bg-[#EFF6FF] border border-[#BFDBFE] text-[#0770E3] flex items-center justify-center mx-auto">
                 <Shield className="w-7 h-7" />
               </div>
 
-              <div className="space-y-2 max-w-md mx-auto">
+              <div className="space-y-1.5 max-w-md mx-auto">
                 <h3 className="text-xl font-bold text-[#05203C]">{t.auth.welcomeTitle}</h3>
                 <p className="text-sm text-slate-600 leading-relaxed">{t.auth.welcomeSub}</p>
+              </div>
+
+              <div className="max-w-md mx-auto text-start space-y-2">
+                <label className="block text-xs font-bold text-[#05203C]">{t.auth.chooseRole}</label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setRole('passenger')}
+                    className={`btn-tactile p-3 rounded-xl border text-start transition-all cursor-pointer ${
+                      role === 'passenger'
+                        ? 'border-[#0770E3] bg-[#EFF6FF]/80 ring-1 ring-[#0770E3]'
+                        : 'border-[#E0E4E8] hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-bold text-xs sm:text-sm text-[#05203C]">
+                      <UserCheck
+                        className={`w-4 h-4 ${role === 'passenger' ? 'text-[#0770E3]' : 'text-slate-500'}`}
+                      />
+                      <span>{t.auth.rolePassenger}</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setRole('driver')}
+                    className={`btn-tactile p-3 rounded-xl border text-start transition-all cursor-pointer ${
+                      role === 'driver'
+                        ? 'border-[#0770E3] bg-[#EFF6FF]/80 ring-1 ring-[#0770E3]'
+                        : 'border-[#E0E4E8] hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-bold text-xs sm:text-sm text-[#05203C]">
+                      <Car
+                        className={`w-4 h-4 ${role === 'driver' ? 'text-[#0770E3]' : 'text-slate-500'}`}
+                      />
+                      <span>{t.auth.roleDriver}</span>
+                    </div>
+                  </button>
+                </div>
               </div>
 
               {errorMsg && (
@@ -489,7 +533,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                 type="button"
                 onClick={handleGoogleSignIn}
                 disabled={loading}
-                className="w-full sm:w-auto min-w-[260px] h-12 inline-flex items-center justify-center gap-3 px-6 bg-[#0770E3] hover:bg-[#0559B8] text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-60 cursor-pointer shadow-xs"
+                className="btn-tactile w-full sm:w-auto min-w-[270px] h-12 inline-flex items-center justify-center gap-3 px-6 bg-[#0770E3] hover:bg-[#0559B8] text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-60 cursor-pointer shadow-xs"
               >
                 {loading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -518,8 +562,13 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                 <span>{loading ? progressText : t.auth.continueGoogle}</span>
               </button>
             </div>
+          ) : !profileLoaded || !needsOnboarding ? (
+            <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-600">
+              <Loader2 className="w-7 h-7 animate-spin text-[#0770E3]" />
+              <p className="text-sm font-medium">{t.auth.checkingAccount}</p>
+            </div>
           ) : (
-            /* STEP 2: COMPLETE PROFILE (NEW GOOGLE USER) */
+            /* STEP 2: COMPLETE PROFILE (FIRST-TIME GOOGLE USER) */
             <form onSubmit={handleSubmitProfile} className="space-y-5">
               {/* Role Tabs: Passenger vs Driver */}
               <div className="space-y-2">
@@ -532,7 +581,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                       setRole('passenger');
                       setErrorMsg('');
                     }}
-                    className={`p-3.5 rounded-xl border text-start transition-all cursor-pointer ${
+                    className={`btn-tactile p-3.5 rounded-xl border text-start transition-all cursor-pointer ${
                       role === 'passenger'
                         ? 'border-[#0770E3] bg-[#EFF6FF]/70 ring-1 ring-[#0770E3]'
                         : 'border-[#E0E4E8] hover:border-slate-300 bg-white'
@@ -554,7 +603,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                       setRole('driver');
                       setErrorMsg('');
                     }}
-                    className={`p-3.5 rounded-xl border text-start transition-all cursor-pointer ${
+                    className={`btn-tactile p-3.5 rounded-xl border text-start transition-all cursor-pointer ${
                       role === 'driver'
                         ? 'border-[#0770E3] bg-[#EFF6FF]/70 ring-1 ring-[#0770E3]'
                         : 'border-[#E0E4E8] hover:border-slate-300 bg-white'
@@ -568,24 +617,6 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                     </div>
                     <p className="text-xs text-slate-600 mt-1">{t.auth.roleDriverDesc}</p>
                   </button>
-
-                  {firebaseUser.email === BOOTSTRAP_ADMIN_EMAIL && firebaseUser.emailVerified && (
-                    <button
-                      type="button"
-                      disabled={loading}
-                      onClick={() => setRole('admin')}
-                      className={`sm:col-span-2 p-3.5 rounded-xl border text-start transition-all cursor-pointer ${
-                        role === 'admin'
-                          ? 'border-[#0770E3] bg-[#EFF6FF]/70 ring-1 ring-[#0770E3]'
-                          : 'border-[#E0E4E8] hover:border-slate-300 bg-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 font-bold text-sm text-[#05203C]">
-                        <Shield className="w-4 h-4 text-[#0770E3]" />
-                        <span>{t.admin.title}</span>
-                      </div>
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -707,64 +738,62 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
               )}
 
               {/* Mandatory Verification Photos (2 Passenger, 3 Driver) */}
-              {role !== 'admin' && (
-                <div className="pt-4 border-t border-[#E0E4E8] space-y-3">
-                  <div className="space-y-1">
-                    <h3 className="text-xs sm:text-sm font-bold text-[#05203C]">
-                      {t.auth.requiredDocsTitle}
-                    </h3>
-                    <p className="text-xs text-slate-600">
-                      {role === 'driver'
-                        ? t.auth.requiredDocsHintDriver
-                        : t.auth.requiredDocsHintPassenger}
-                    </p>
-                  </div>
-
-                  <div
-                    className={`grid grid-cols-1 gap-3 ${
-                      role === 'driver' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
-                    }`}
-                  >
-                    <PhotoUploadCard
-                      label={t.auth.idCardPhoto}
-                      requiredLabel={t.auth.requiredTag}
-                      tapToUploadLabel={t.auth.tapToUpload}
-                      replaceLabel={t.auth.replacePhoto}
-                      removeLabel={t.auth.removePhoto}
-                      photo={idPhoto}
-                      disabled={loading}
-                      onSelect={(file) => setPhotoState(file, idPhoto, setIdPhoto)}
-                      onRemove={() => clearPhotoState(idPhoto, setIdPhoto)}
-                    />
-
-                    <PhotoUploadCard
-                      label={t.auth.portraitPhoto}
-                      requiredLabel={t.auth.requiredTag}
-                      tapToUploadLabel={t.auth.tapToUpload}
-                      replaceLabel={t.auth.replacePhoto}
-                      removeLabel={t.auth.removePhoto}
-                      photo={portraitPhoto}
-                      disabled={loading}
-                      onSelect={(file) => setPhotoState(file, portraitPhoto, setPortraitPhoto)}
-                      onRemove={() => clearPhotoState(portraitPhoto, setPortraitPhoto)}
-                    />
-
-                    {role === 'driver' && (
-                      <PhotoUploadCard
-                        label={t.auth.drivingLicensePhoto}
-                        requiredLabel={t.auth.requiredTag}
-                        tapToUploadLabel={t.auth.tapToUpload}
-                        replaceLabel={t.auth.replacePhoto}
-                        removeLabel={t.auth.removePhoto}
-                        photo={licensePhoto}
-                        disabled={loading}
-                        onSelect={(file) => setPhotoState(file, licensePhoto, setLicensePhoto)}
-                        onRemove={() => clearPhotoState(licensePhoto, setLicensePhoto)}
-                      />
-                    )}
-                  </div>
+              <div className="pt-4 border-t border-[#E0E4E8] space-y-3">
+                <div className="space-y-1">
+                  <h3 className="text-xs sm:text-sm font-bold text-[#05203C]">
+                    {t.auth.requiredDocsTitle}
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    {role === 'driver'
+                      ? t.auth.requiredDocsHintDriver
+                      : t.auth.requiredDocsHintPassenger}
+                  </p>
                 </div>
-              )}
+
+                <div
+                  className={`grid grid-cols-1 gap-3 ${
+                    role === 'driver' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+                  }`}
+                >
+                  <PhotoUploadCard
+                    label={t.auth.idCardPhoto}
+                    requiredLabel={t.auth.requiredTag}
+                    tapToUploadLabel={t.auth.tapToUpload}
+                    replaceLabel={t.auth.replacePhoto}
+                    removeLabel={t.auth.removePhoto}
+                    photo={idPhoto}
+                    disabled={loading}
+                    onSelect={(file) => setPhotoState(file, idPhoto, setIdPhoto)}
+                    onRemove={() => clearPhotoState(idPhoto, setIdPhoto)}
+                  />
+
+                  <PhotoUploadCard
+                    label={t.auth.portraitPhoto}
+                    requiredLabel={t.auth.requiredTag}
+                    tapToUploadLabel={t.auth.tapToUpload}
+                    replaceLabel={t.auth.replacePhoto}
+                    removeLabel={t.auth.removePhoto}
+                    photo={portraitPhoto}
+                    disabled={loading}
+                    onSelect={(file) => setPhotoState(file, portraitPhoto, setPortraitPhoto)}
+                    onRemove={() => clearPhotoState(portraitPhoto, setPortraitPhoto)}
+                  />
+
+                  {role === 'driver' && (
+                    <PhotoUploadCard
+                      label={t.auth.drivingLicensePhoto}
+                      requiredLabel={t.auth.requiredTag}
+                      tapToUploadLabel={t.auth.tapToUpload}
+                      replaceLabel={t.auth.replacePhoto}
+                      removeLabel={t.auth.removePhoto}
+                      photo={licensePhoto}
+                      disabled={loading}
+                      onSelect={(file) => setPhotoState(file, licensePhoto, setLicensePhoto)}
+                      onRemove={() => clearPhotoState(licensePhoto, setLicensePhoto)}
+                    />
+                  )}
+                </div>
+              </div>
 
               {/* Loading Progress Feedback Banner */}
               {loading && progressStep && (

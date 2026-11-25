@@ -12,35 +12,38 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { BOOTSTRAP_ADMIN_EMAIL, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { ADMIN_ACCESS_CODE, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import {
   DEFAULT_PLATFORM_SETTINGS,
   IRAQ_CITIES,
   IRAQ_GARAGES,
   IRAQ_GOVERNORATES,
 } from '../data/iraqReferenceData';
-import type {
-  AccountStatus,
-  Booking,
-  CabinSeatId,
-  City,
-  Complaint,
-  DriverProfile,
-  Garage,
-  Governorate,
-  LanguageCode,
-  Payment,
-  PaymentStatus,
-  PlatformSettings,
-  PointsWallet,
-  PublicDriverProfile,
-  Referral,
-  Trip,
-  TripStatus,
-  UserProfile,
-  UserRole,
-  Vehicle,
-  VerificationStatus,
+import {
+  getTripSeatPrice,
+  resolveTripSeatPrices,
+  type AccountStatus,
+  type Booking,
+  type CabinSeatId,
+  type City,
+  type Complaint,
+  type DriverProfile,
+  type Garage,
+  type Governorate,
+  type LanguageCode,
+  type Payment,
+  type PaymentStatus,
+  type PlatformSettings,
+  type PointsWallet,
+  type PublicDriverProfile,
+  type Referral,
+  type SeatPricesMap,
+  type Trip,
+  type TripStatus,
+  type UserProfile,
+  type UserRole,
+  type Vehicle,
+  type VerificationStatus,
 } from '../types/domain';
 
 function generateReferralCode(uid: string): string {
@@ -108,15 +111,20 @@ export async function seedIraqReferenceData(force = false): Promise<void> {
   }
 }
 
-export async function ensureAdminDocument(uid: string, email: string): Promise<void> {
-  if (email !== BOOTSTRAP_ADMIN_EMAIL) return;
+export async function ensureAdminDocument(
+  uid: string,
+  email: string,
+  accessCode = ADMIN_ACCESS_CODE
+): Promise<void> {
+  if (accessCode.trim() !== ADMIN_ACCESS_CODE) return;
   try {
     const adminRef = doc(db, 'admins', uid);
     const snap = await getDoc(adminRef);
-    if (!snap.exists()) {
+    if (!snap.exists() || snap.data()?.accessCode !== ADMIN_ACCESS_CODE) {
       await setDoc(adminRef, {
         uid,
-        email,
+        email: (email || '').trim().slice(0, 160),
+        accessCode: ADMIN_ACCESS_CODE,
         grantedAt: serverTimestamp(),
       });
     }
@@ -179,7 +187,7 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
     referrerId = ownerId;
   }
 
-  const finalRole: UserRole = email === BOOTSTRAP_ADMIN_EMAIL && role === 'admin' ? 'admin' : role === 'admin' ? 'passenger' : role;
+  const finalRole: UserRole = role === 'driver' ? 'driver' : 'passenger';
   const myReferralCode = generateReferralCode(uid);
 
   try {
@@ -195,7 +203,7 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
       displayName: displayName.trim(),
       role: finalRole,
       accountStatus: 'active',
-      verificationStatus: finalRole === 'admin' ? 'approved' : (payload.verificationStatus || 'pending'),
+      verificationStatus: payload.verificationStatus || 'pending',
       preferredLanguage,
       referralCode: myReferralCode,
       governorateId,
@@ -338,6 +346,24 @@ export async function updatePassengerProfile(
   }
 }
 
+export async function resubmitPassengerVerificationDocs(
+  uid: string,
+  payload: { idDocumentUrl: string; portraitUrl: string }
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'users', uid), {
+      idDocumentUrl: payload.idDocumentUrl,
+      portraitUrl: payload.portraitUrl,
+      photoUrl: payload.portraitUrl,
+      verificationStatus: 'pending',
+      rejectionReason: '',
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+  }
+}
+
 export async function updateDriverDocumentsAndVehicle(
   uid: string,
   driverData: {
@@ -363,6 +389,14 @@ export async function updateDriverDocumentsAndVehicle(
   }
 ): Promise<void> {
   try {
+    const [drvSnap, usrSnap] = await Promise.all([
+      getDoc(doc(db, 'drivers', uid)),
+      getDoc(doc(db, 'users', uid)),
+    ]);
+    const wasRejected =
+      (drvSnap.exists() && drvSnap.data().verificationStatus === 'rejected') ||
+      (usrSnap.exists() && usrSnap.data().verificationStatus === 'rejected');
+
     const batch = writeBatch(db);
     const driverPatch: Record<string, unknown> = {
       fullName: driverData.fullName.trim(),
@@ -376,9 +410,13 @@ export async function updateDriverDocumentsAndVehicle(
     };
     if (driverData.idDocumentUrl !== undefined) driverPatch.idDocumentUrl = driverData.idDocumentUrl;
     if (driverData.licenseDocumentUrl !== undefined) driverPatch.licenseDocumentUrl = driverData.licenseDocumentUrl;
+    if (wasRejected) {
+      driverPatch.verificationStatus = 'pending';
+      driverPatch.rejectionReason = '';
+    }
 
     batch.update(doc(db, 'drivers', uid), driverPatch);
-    batch.update(doc(db, 'public_drivers', uid), {
+    const publicPatch: Record<string, unknown> = {
       fullName: driverData.fullName.trim(),
       governorateId: driverData.governorateId,
       homeGarageId: driverData.homeGarageId,
@@ -386,7 +424,26 @@ export async function updateDriverDocumentsAndVehicle(
       vehiclePhotoUrl: vehicleData.photoUrl || '',
       bio: (driverData.bio || '').trim(),
       updatedAt: serverTimestamp(),
-    });
+    };
+    if (wasRejected) {
+      publicPatch.verificationStatus = 'pending';
+    }
+    batch.update(doc(db, 'public_drivers', uid), publicPatch);
+
+    if (wasRejected && usrSnap.exists()) {
+      const userPatch: Record<string, unknown> = {
+        verificationStatus: 'pending',
+        rejectionReason: '',
+        updatedAt: serverTimestamp(),
+      };
+      if (driverData.idDocumentUrl && driverData.idDocumentUrl.length <= 2000) {
+        userPatch.idDocumentUrl = driverData.idDocumentUrl;
+      }
+      if (driverData.licenseDocumentUrl && driverData.licenseDocumentUrl.length <= 2000) {
+        userPatch.licenseDocumentUrl = driverData.licenseDocumentUrl;
+      }
+      batch.update(doc(db, 'users', uid), userPatch);
+    }
 
     if (vehicleData.vehicleId) {
       batch.update(doc(db, 'vehicles', vehicleData.vehicleId), {
@@ -436,7 +493,10 @@ export async function toggleDriverAvailability(uid: string, isAvailable: boolean
 
 export async function publishTrip(input: {
   driver: DriverProfile;
-  vehicle: Vehicle;
+  vehicle?: Vehicle | null;
+  vehicleModel?: string;
+  vehiclePlate?: string;
+  vehiclePhotoUrl?: string;
   departureGovId: string;
   destinationGovId: string;
   departureGarageId: string;
@@ -445,8 +505,11 @@ export async function publishTrip(input: {
   departureTime: string;
   estimatedDurationMin: number;
   pricePerSeatIqd: number;
+  seatPrices?: SeatPricesMap;
+  cargoEnabled?: boolean;
+  cargoPriceIqd?: number;
   originalPriceIqd?: number;
-  totalSeats: number;
+  totalSeats?: number;
   notes?: string;
 }): Promise<string> {
   if (input.driver.verificationStatus !== 'approved') {
@@ -456,19 +519,38 @@ export async function publishTrip(input: {
     throw new Error('SAME_GOVERNORATE');
   }
   const tripRef = doc(collection(db, 'trips'));
-  const hasDiscount = Boolean(input.originalPriceIqd && input.originalPriceIqd > input.pricePerSeatIqd);
+  const normalizedSeatPrices = resolveTripSeatPrices({
+    pricePerSeatIqd: input.pricePerSeatIqd,
+    seatPrices: input.seatPrices,
+  });
+  const effectiveMinPrice = Math.min(
+    normalizedSeatPrices.front_passenger,
+    normalizedSeatPrices.rear_right,
+    normalizedSeatPrices.rear_middle,
+    normalizedSeatPrices.rear_left
+  );
+  const cargoEnabled = Boolean(input.cargoEnabled);
+  const cargoPriceIqd = cargoEnabled ? Math.max(0, Number(input.cargoPriceIqd) || 0) : 0;
+  const hasDiscount = Boolean(input.originalPriceIqd && input.originalPriceIqd > effectiveMinPrice);
+  const seats = Math.max(1, Math.min(4, Number(input.totalSeats) || 4));
+  const resolvedVehicleId = input.vehicle?.id || `veh_${input.driver.uid}`;
+  const resolvedVehicleModel = input.vehicle
+    ? `${input.vehicle.makeModel} (${input.vehicle.year})`
+    : (input.vehicleModel || 'تكسي بين المحافظات').trim();
+  const resolvedVehiclePlate = (input.vehicle?.plateNumber || input.vehiclePlate || '').trim();
+  const resolvedVehiclePhoto = input.vehicle?.photoUrl || input.vehiclePhotoUrl || '';
 
   try {
     await setDoc(tripRef, {
       driverId: input.driver.uid,
       driverName: input.driver.fullName,
-      driverRating: input.driver.ratingAvg || 5,
+      driverRating: input.driver.ratingAvg || 0,
       driverCompletedTrips: input.driver.completedTripsCount || 0,
       driverVerified: true,
-      vehicleId: input.vehicle.id,
-      vehicleModel: `${input.vehicle.makeModel} (${input.vehicle.year})`,
-      vehiclePlate: input.vehicle.plateNumber,
-      vehiclePhotoUrl: input.vehicle.photoUrl || '',
+      vehicleId: resolvedVehicleId,
+      vehicleModel: resolvedVehicleModel.slice(0, 100),
+      vehiclePlate: resolvedVehiclePlate.slice(0, 40),
+      vehiclePhotoUrl: resolvedVehiclePhoto,
       departureGovId: input.departureGovId,
       destinationGovId: input.destinationGovId,
       departureGarageId: input.departureGarageId,
@@ -476,11 +558,14 @@ export async function publishTrip(input: {
       departureDate: input.departureDate,
       departureTime: input.departureTime,
       estimatedDurationMin: Number(input.estimatedDurationMin) || 180,
-      pricePerSeatIqd: Number(input.pricePerSeatIqd),
+      pricePerSeatIqd: effectiveMinPrice,
+      seatPrices: normalizedSeatPrices,
+      cargoEnabled,
+      cargoPriceIqd,
       originalPriceIqd: hasDiscount ? Number(input.originalPriceIqd) : 0,
       isSpecialOffer: hasDiscount,
-      totalSeats: Number(input.totalSeats),
-      availableSeats: Number(input.totalSeats),
+      totalSeats: seats,
+      availableSeats: seats,
       confirmedSeatsCount: 0,
       bookedSeats: [],
       status: 'scheduled',
@@ -495,6 +580,60 @@ export async function publishTrip(input: {
   }
 }
 
+export async function updateTripDetails(
+  tripId: string,
+  input: {
+    departureGovId: string;
+    destinationGovId: string;
+    departureGarageId: string;
+    destinationGarageId: string;
+    departureDate: string;
+    departureTime: string;
+    estimatedDurationMin: number;
+    pricePerSeatIqd: number;
+    seatPrices: SeatPricesMap;
+    cargoEnabled: boolean;
+    cargoPriceIqd: number;
+    notes?: string;
+  }
+): Promise<void> {
+  if (input.departureGovId === input.destinationGovId) {
+    throw new Error('SAME_GOVERNORATE');
+  }
+  const normalizedSeatPrices = resolveTripSeatPrices({
+    pricePerSeatIqd: input.pricePerSeatIqd,
+    seatPrices: input.seatPrices,
+  });
+  const effectiveMinPrice = Math.min(
+    normalizedSeatPrices.front_passenger,
+    normalizedSeatPrices.rear_right,
+    normalizedSeatPrices.rear_middle,
+    normalizedSeatPrices.rear_left
+  );
+  const cargoEnabled = Boolean(input.cargoEnabled);
+  const cargoPriceIqd = cargoEnabled ? Math.max(0, Number(input.cargoPriceIqd) || 0) : 0;
+
+  try {
+    await updateDoc(doc(db, 'trips', tripId), {
+      departureGovId: input.departureGovId,
+      destinationGovId: input.destinationGovId,
+      departureGarageId: input.departureGarageId,
+      destinationGarageId: input.destinationGarageId,
+      departureDate: input.departureDate,
+      departureTime: input.departureTime,
+      estimatedDurationMin: Number(input.estimatedDurationMin) || 180,
+      pricePerSeatIqd: effectiveMinPrice,
+      seatPrices: normalizedSeatPrices,
+      cargoEnabled,
+      cargoPriceIqd,
+      notes: (input.notes || '').trim().slice(0, 400),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `trips/${tripId}`);
+  }
+}
+
 export async function updateTripStatus(tripId: string, status: TripStatus): Promise<void> {
   try {
     await updateDoc(doc(db, 'trips', tripId), {
@@ -503,6 +642,58 @@ export async function updateTripStatus(tripId: string, status: TripStatus): Prom
     });
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `trips/${tripId}`);
+  }
+}
+
+export async function deleteTrip(
+  tripId: string,
+  actorUid: string,
+  isAdminActor: boolean,
+  settings: PlatformSettings = DEFAULT_PLATFORM_SETTINGS
+): Promise<void> {
+  try {
+    const tripRef = doc(db, 'trips', tripId);
+    const tripSnap = await getDoc(tripRef);
+    if (!tripSnap.exists()) return;
+    const trip = tripSnap.data() as Trip;
+
+    if (!isAdminActor) {
+      if (trip.driverId !== actorUid || (trip.confirmedSeatsCount || 0) > 0) {
+        throw new Error('CANNOT_DELETE_TRIP_WITH_BOOKINGS');
+      }
+    }
+
+    const bookingsSnap = await getDocs(
+      query(
+        collection(db, 'bookings'),
+        where('tripId', '==', tripId),
+        ...(isAdminActor ? [] : [where('driverId', '==', actorUid)])
+      )
+    );
+
+    const activeBookings = bookingsSnap.docs.filter((d) =>
+      ['pending', 'accepted'].includes((d.data() as Booking).status)
+    );
+
+    if (!isAdminActor && activeBookings.some((d) => (d.data() as Booking).status === 'accepted')) {
+      throw new Error('CANNOT_DELETE_TRIP_WITH_BOOKINGS');
+    }
+
+    for (const bDoc of activeBookings) {
+      const bData = bDoc.data() as Booking;
+      if (bData.status === 'pending') {
+        await rejectBookingTransaction(bDoc.id, 'Trip removed');
+      } else if (isAdminActor && bData.status === 'accepted') {
+        await cancelBookingTransaction(bDoc.id, actorUid, 'Trip removed by admin', settings);
+      }
+    }
+
+    await deleteDoc(tripRef);
+  } catch (err) {
+    if (err instanceof Error && err.message === 'CANNOT_DELETE_TRIP_WITH_BOOKINGS') {
+      throw err;
+    }
+    handleFirestoreError(err, OperationType.DELETE, `trips/${tripId}`);
   }
 }
 
@@ -536,6 +727,8 @@ export async function createBookingTransaction(input: {
   seatsCount: number;
   selectedSeats?: CabinSeatId[];
   notes?: string;
+  includeCargo?: boolean;
+  cargoNotes?: string;
   useCustomDropOff?: boolean;
   customDropOffLat?: number;
   customDropOffLng?: number;
@@ -551,6 +744,8 @@ export async function createBookingTransaction(input: {
     seatsCount,
     selectedSeats,
     notes,
+    includeCargo,
+    cargoNotes,
     useCustomDropOff,
     customDropOffLat,
     customDropOffLng,
@@ -567,13 +762,20 @@ export async function createBookingTransaction(input: {
     typeof customDropOffLng === 'number';
   const customDropOffFeeIqd = hasCustomDropOff ? CUSTOM_DROPOFF_FEE_IQD : 0;
 
+  if (passenger.verificationStatus !== 'approved' || passenger.accountStatus !== 'active') {
+    throw new Error('UNAPPROVED_USER');
+  }
   if (trip.driverId === passenger.uid) {
     throw new Error('CANNOT_BOOK_OWN_TRIP');
   }
+  const initialSeatsSubtotal =
+    chosenSeats.length > 0
+      ? chosenSeats.reduce((sum, seat) => sum + getTripSeatPrice(trip, seat), 0)
+      : trip.pricePerSeatIqd * effectiveSeatsCount;
   if (redeemFreeTrip && effectiveSeatsCount !== 1) {
     throw new Error('FREE_TRIP_SINGLE_SEAT_ONLY');
   }
-  if (redeemFreeTrip && trip.pricePerSeatIqd > settings.maxFreeTripValueIqd) {
+  if (redeemFreeTrip && initialSeatsSubtotal > settings.maxFreeTripValueIqd) {
     throw new Error('EXCEEDS_MAX_FREE_VALUE');
   }
 
@@ -633,9 +835,19 @@ export async function createBookingTransaction(input: {
       }
 
       // All reads complete — execute writes
+      const seatsSubtotalIqd =
+        chosenSeats.length > 0
+          ? chosenSeats.reduce((sum, seat) => sum + getTripSeatPrice(liveTrip, seat), 0)
+          : liveTrip.pricePerSeatIqd * effectiveSeatsCount;
+      const canIncludeCargo = Boolean(
+        includeCargo && liveTrip.cargoEnabled && Number(liveTrip.cargoPriceIqd || 0) >= 0
+      );
+      const cargoFeeIqd = canIncludeCargo ? Number(liveTrip.cargoPriceIqd || 0) : 0;
       const totalPriceIqd =
-        (redeemFreeTrip ? 0 : liveTrip.pricePerSeatIqd * effectiveSeatsCount) + customDropOffFeeIqd;
+        (redeemFreeTrip ? 0 : seatsSubtotalIqd) + cargoFeeIqd + customDropOffFeeIqd;
       const pointsRedeemed = redeemFreeTrip ? settings.freeTripCostPoints : 0;
+      const singleSeatPrice =
+        chosenSeats.length === 1 ? getTripSeatPrice(liveTrip, chosenSeats[0]) : liveTrip.pricePerSeatIqd;
 
       tx.set(bookingRef, {
         tripId: trip.id,
@@ -650,7 +862,13 @@ export async function createBookingTransaction(input: {
         departureTime: liveTrip.departureTime,
         seatsCount: effectiveSeatsCount,
         ...(chosenSeats.length > 0 ? { selectedSeats: chosenSeats } : {}),
-        seatPriceIqd: liveTrip.pricePerSeatIqd,
+        seatPriceIqd: singleSeatPrice,
+        seatsSubtotalIqd,
+        includeCargo: canIncludeCargo,
+        cargoFeeIqd,
+        ...(canIncludeCargo && cargoNotes?.trim()
+          ? { cargoNotes: cargoNotes.trim().slice(0, 240) }
+          : {}),
         totalPriceIqd,
         pointsRedeemed,
         isFreeTrip: redeemFreeTrip,
@@ -756,7 +974,17 @@ export async function createBookingTransaction(input: {
 
     return bookingRef.id;
   } catch (err) {
-    if (err instanceof Error && ['INSUFFICIENT_SEATS', 'INSUFFICIENT_POINTS', 'TRIP_NOT_FOUND', 'SEAT_ALREADY_BOOKED'].includes(err.message)) {
+    if (
+      err instanceof Error &&
+      [
+        'UNAPPROVED_USER',
+        'CANNOT_BOOK_OWN_TRIP',
+        'INSUFFICIENT_SEATS',
+        'INSUFFICIENT_POINTS',
+        'TRIP_NOT_FOUND',
+        'SEAT_ALREADY_BOOKED',
+      ].includes(err.message)
+    ) {
       throw err;
     }
     handleFirestoreError(err, OperationType.WRITE, `bookings/${bookingRef.id}`);
@@ -1395,11 +1623,12 @@ export async function adminSetDriverVerification(
   status: VerificationStatus,
   reason = ''
 ): Promise<void> {
+  const cleanReason = status === 'approved' ? '' : reason.trim().slice(0, 400);
   try {
     const batch = writeBatch(db);
     batch.update(doc(db, 'drivers', driverId), {
       verificationStatus: status,
-      rejectionReason: reason.trim().slice(0, 400),
+      rejectionReason: cleanReason,
       updatedAt: serverTimestamp(),
     });
     batch.update(doc(db, 'public_drivers', driverId), {
@@ -1408,6 +1637,7 @@ export async function adminSetDriverVerification(
     });
     batch.update(doc(db, 'users', driverId), {
       verificationStatus: status,
+      rejectionReason: cleanReason,
       updatedAt: serverTimestamp(),
     });
     if (status === 'approved') {
@@ -1424,15 +1654,15 @@ export async function adminSetDriverVerification(
       bodyAr:
         status === 'approved'
           ? 'يمكنك الآن نشر رحلاتك بين المحافظات واستقبال طلبات الحجز.'
-          : `حالة الحساب الحالية: ${status}. ${reason}`,
+          : `حالة الحساب الحالية: ${status}. ${cleanReason}`,
       bodyKu:
         status === 'approved'
           ? 'ئێستا دەتوانیت گەشت بڵاوبکەیتەوە و داواکاری وەربگریت.'
-          : `بارودۆخی هەژمار: ${status}. ${reason}`,
+          : `بارودۆخی هەژمار: ${status}. ${cleanReason}`,
       bodyEn:
         status === 'approved'
           ? 'You can now publish intercity trips and accept seat bookings.'
-          : `Verification status updated to ${status}. ${reason}`,
+          : `Verification status updated to ${status}. ${cleanReason}`,
       type: 'driver_status',
       relatedId: driverId,
       isRead: false,
@@ -1446,13 +1676,55 @@ export async function adminSetDriverVerification(
 
 export async function adminSetUserVerification(
   uid: string,
-  status: VerificationStatus
+  status: VerificationStatus,
+  reason = ''
 ): Promise<void> {
+  const cleanReason = status === 'approved' ? '' : reason.trim().slice(0, 400);
   try {
-    await updateDoc(doc(db, 'users', uid), {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', uid), {
       verificationStatus: status,
+      rejectionReason: cleanReason,
       updatedAt: serverTimestamp(),
     });
+    const drvSnap = await getDoc(doc(db, 'drivers', uid));
+    if (drvSnap.exists()) {
+      batch.update(doc(db, 'drivers', uid), {
+        verificationStatus: status,
+        rejectionReason: cleanReason,
+        updatedAt: serverTimestamp(),
+      });
+    }
+    const pubDrvSnap = await getDoc(doc(db, 'public_drivers', uid));
+    if (pubDrvSnap.exists()) {
+      batch.update(doc(db, 'public_drivers', uid), {
+        verificationStatus: status,
+        updatedAt: serverTimestamp(),
+      });
+    }
+    batch.set(doc(collection(db, 'notifications')), {
+      userId: uid,
+      titleAr: status === 'approved' ? 'تمت الموافقة على توثيق حسابك' : 'تحديث حالة توثيق الحساب',
+      titleKu: status === 'approved' ? 'هەژمارەکەت پەسەندکرا' : 'نوێکردنەوەی پەسەندکردنی هەژمار',
+      titleEn: status === 'approved' ? 'Account Verification Approved' : 'Account Verification Update',
+      bodyAr:
+        status === 'approved'
+          ? 'حسابك مفعّل وموثّق الآن. يمكنك استخدام جميع خدمات مسار العراق.'
+          : `تم تحديث حالة التوثيق إلى ${status}. ${cleanReason}`,
+      bodyKu:
+        status === 'approved'
+          ? 'هەژمارەکەت ئێستا چالاک و باوەڕپێکراوە. دەتوانیت هەموو خزمەتگوزارییەکان بەکاربهێنیت.'
+          : `بارودۆخی پەسەندکردن گۆڕدرا بۆ ${status}. ${cleanReason}`,
+      bodyEn:
+        status === 'approved'
+          ? 'Your account is now verified and active on Masar Iraq.'
+          : `Verification status updated to ${status}. ${cleanReason}`,
+      type: 'system',
+      relatedId: uid,
+      isRead: false,
+      createdAt: serverTimestamp(),
+    });
+    await batch.commit();
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
   }
