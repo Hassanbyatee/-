@@ -1,0 +1,6 @@
+{
+  "name": "Masar Iraq | مسار العراق",
+  "description": "Multilingual Iraqi intercity shared taxi booking platform connecting passengers with verified drivers across governorate garages.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,891 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection health check
+    match /test/connection {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
+    // --- GLOBAL HELPERS ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn();
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isBootstrapAdmin() {
+      return isEmailVerified() && request.auth.token.email == 'i8hassan22oo@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrapAdmin() || (
+        isEmailVerified() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isApprovedDriver(uid) {
+      return exists(/databases/$(database)/documents/drivers/$(uid)) &&
+        get(/databases/$(database)/documents/drivers/$(uid)).data.verificationStatus == 'approved';
+    }
+
+    function isValidStr(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // --- ENTITY VALIDATION HELPERS ---
+
+    function isValidAdminDoc(data) {
+      return data.keys().hasAll(['uid', 'email', 'grantedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'grantedAt']) &&
+        isValidId(data.uid) &&
+        isValidStr(data.email, 3, 160) &&
+        data.grantedAt is timestamp;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'accountStatus', 'preferredLanguage', 'referralCode', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'role', 'accountStatus', 'verificationStatus', 'preferredLanguage', 'referralCode', 'referredBy', 'governorateId', 'photoUrl', 'idDocumentUrl', 'portraitUrl', 'licenseDocumentUrl', 'vehicleModel', 'plateNumber', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        isValidStr(data.displayName, 2, 100) &&
+        data.role in ['passenger', 'driver', 'admin'] &&
+        data.accountStatus in ['active', 'suspended', 'blocked'] &&
+        (!('verificationStatus' in data) || data.verificationStatus in ['pending', 'approved', 'rejected', 'suspended']) &&
+        data.preferredLanguage in ['ar', 'ku', 'en'] &&
+        isValidStr(data.referralCode, 4, 24) &&
+        (!('referredBy' in data) || isValidStr(data.referredBy, 1, 128)) &&
+        (!('governorateId' in data) || isValidStr(data.governorateId, 1, 64)) &&
+        (!('photoUrl' in data) || isValidStr(data.photoUrl, 0, 2000)) &&
+        (!('idDocumentUrl' in data) || isValidStr(data.idDocumentUrl, 0, 2000)) &&
+        (!('portraitUrl' in data) || isValidStr(data.portraitUrl, 0, 2000)) &&
+        (!('licenseDocumentUrl' in data) || isValidStr(data.licenseDocumentUrl, 0, 2000)) &&
+        (!('vehicleModel' in data) || isValidStr(data.vehicleModel, 0, 100)) &&
+        (!('plateNumber' in data) || isValidStr(data.plateNumber, 0, 40)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivate(data) {
+      return data.keys().hasAll(['uid', 'email', 'phone', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'phone', 'emergencyContact', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        isValidStr(data.email, 3, 160) &&
+        isValidStr(data.phone, 7, 24) &&
+        (!('emergencyContact' in data) || isValidStr(data.emergencyContact, 0, 100)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDriver(data) {
+      return data.keys().hasAll(['uid', 'fullName', 'phone', 'governorateId', 'licenseNumber', 'nationalIdNumber', 'verificationStatus', 'isAvailable', 'ratingAvg', 'ratingCount', 'completedTripsCount', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'fullName', 'phone', 'governorateId', 'homeGarageId', 'licenseNumber', 'nationalIdNumber', 'idDocumentUrl', 'licenseDocumentUrl', 'operatingGovIds', 'verificationStatus', 'rejectionReason', 'isAvailable', 'ratingAvg', 'ratingCount', 'completedTripsCount', 'bio', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        isValidStr(data.fullName, 2, 100) &&
+        isValidStr(data.phone, 7, 24) &&
+        isValidId(data.governorateId) &&
+        (!('homeGarageId' in data) || isValidStr(data.homeGarageId, 0, 64)) &&
+        isValidStr(data.licenseNumber, 3, 64) &&
+        isValidStr(data.nationalIdNumber, 4, 64) &&
+        (!('idDocumentUrl' in data) || isValidStr(data.idDocumentUrl, 0, 220000)) &&
+        (!('licenseDocumentUrl' in data) || isValidStr(data.licenseDocumentUrl, 0, 220000)) &&
+        (!('operatingGovIds' in data) || (data.operatingGovIds is list && data.operatingGovIds.size() <= 19)) &&
+        data.verificationStatus in ['pending', 'approved', 'rejected', 'suspended'] &&
+        (!('rejectionReason' in data) || isValidStr(data.rejectionReason, 0, 400)) &&
+        data.isAvailable is bool &&
+        data.ratingAvg is number && data.ratingAvg >= 0 && data.ratingAvg <= 5 &&
+        data.ratingCount is number && data.ratingCount >= 0 &&
+        data.completedTripsCount is number && data.completedTripsCount >= 0 &&
+        (!('bio' in data) || isValidStr(data.bio, 0, 500)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPublicDriver(data) {
+      return data.keys().hasAll(['uid', 'fullName', 'governorateId', 'verificationStatus', 'isAvailable', 'ratingAvg', 'ratingCount', 'completedTripsCount', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'fullName', 'governorateId', 'homeGarageId', 'operatingGovIds', 'verificationStatus', 'isAvailable', 'ratingAvg', 'ratingCount', 'completedTripsCount', 'vehicleModel', 'vehiclePhotoUrl', 'bio', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        isValidStr(data.fullName, 2, 100) &&
+        isValidId(data.governorateId) &&
+        (!('homeGarageId' in data) || isValidStr(data.homeGarageId, 0, 64)) &&
+        (!('operatingGovIds' in data) || (data.operatingGovIds is list && data.operatingGovIds.size() <= 19)) &&
+        data.verificationStatus in ['pending', 'approved', 'rejected', 'suspended'] &&
+        data.isAvailable is bool &&
+        data.ratingAvg is number && data.ratingAvg >= 0 && data.ratingAvg <= 5 &&
+        data.ratingCount is number && data.ratingCount >= 0 &&
+        data.completedTripsCount is number && data.completedTripsCount >= 0 &&
+        (!('vehicleModel' in data) || isValidStr(data.vehicleModel, 0, 100)) &&
+        (!('vehiclePhotoUrl' in data) || isValidStr(data.vehiclePhotoUrl, 0, 220000)) &&
+        (!('bio' in data) || isValidStr(data.bio, 0, 500)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidVehicle(data) {
+      return data.keys().hasAll(['driverId', 'makeModel', 'year', 'plateNumber', 'passengerCapacity', 'verified', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['driverId', 'makeModel', 'year', 'plateNumber', 'color', 'passengerCapacity', 'hasAc', 'hasWifi', 'photoUrl', 'verified', 'createdAt', 'updatedAt']) &&
+        isValidId(data.driverId) &&
+        isValidStr(data.makeModel, 2, 100) &&
+        data.year is number && data.year >= 1995 && data.year <= 2030 &&
+        isValidStr(data.plateNumber, 2, 40) &&
+        (!('color' in data) || isValidStr(data.color, 0, 40)) &&
+        data.passengerCapacity is number && data.passengerCapacity >= 1 && data.passengerCapacity <= 20 &&
+        (!('hasAc' in data) || data.hasAc is bool) &&
+        (!('hasWifi' in data) || data.hasWifi is bool) &&
+        (!('photoUrl' in data) || isValidStr(data.photoUrl, 0, 220000)) &&
+        data.verified is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidGovernorate(data) {
+      return data.keys().hasAll(['code', 'nameAr', 'nameKu', 'nameEn', 'lat', 'lng', 'isActive']) &&
+        data.keys().hasOnly(['code', 'nameAr', 'nameKu', 'nameEn', 'lat', 'lng', 'isActive']) &&
+        isValidStr(data.code, 2, 16) &&
+        isValidStr(data.nameAr, 1, 80) &&
+        isValidStr(data.nameKu, 1, 80) &&
+        isValidStr(data.nameEn, 1, 80) &&
+        data.lat is number && data.lng is number &&
+        data.isActive is bool;
+    }
+
+    function isValidCity(data) {
+      return data.keys().hasAll(['governorateId', 'nameAr', 'nameKu', 'nameEn', 'isActive']) &&
+        data.keys().hasOnly(['governorateId', 'nameAr', 'nameKu', 'nameEn', 'isActive']) &&
+        isValidId(data.governorateId) &&
+        isValidStr(data.nameAr, 1, 80) &&
+        isValidStr(data.nameKu, 1, 80) &&
+        isValidStr(data.nameEn, 1, 80) &&
+        data.isActive is bool;
+    }
+
+    function isValidGarage(data) {
+      return data.keys().hasAll(['governorateId', 'nameAr', 'nameKu', 'nameEn', 'lat', 'lng', 'isActive']) &&
+        data.keys().hasOnly(['governorateId', 'cityId', 'nameAr', 'nameKu', 'nameEn', 'addressAr', 'addressKu', 'addressEn', 'lat', 'lng', 'operatingHours', 'isActive']) &&
+        isValidId(data.governorateId) &&
+        (!('cityId' in data) || isValidStr(data.cityId, 0, 64)) &&
+        isValidStr(data.nameAr, 1, 120) &&
+        isValidStr(data.nameKu, 1, 120) &&
+        isValidStr(data.nameEn, 1, 120) &&
+        (!('addressAr' in data) || isValidStr(data.addressAr, 0, 200)) &&
+        (!('addressKu' in data) || isValidStr(data.addressKu, 0, 200)) &&
+        (!('addressEn' in data) || isValidStr(data.addressEn, 0, 200)) &&
+        data.lat is number && data.lng is number &&
+        (!('operatingHours' in data) || isValidStr(data.operatingHours, 0, 60)) &&
+        data.isActive is bool;
+    }
+
+    function isValidTrip(data) {
+      return data.keys().hasAll(['driverId', 'driverName', 'vehicleId', 'vehicleModel', 'departureGovId', 'destinationGovId', 'departureGarageId', 'destinationGarageId', 'departureDate', 'departureTime', 'pricePerSeatIqd', 'totalSeats', 'availableSeats', 'confirmedSeatsCount', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['driverId', 'driverName', 'driverRating', 'driverCompletedTrips', 'driverVerified', 'vehicleId', 'vehicleModel', 'vehiclePlate', 'vehiclePhotoUrl', 'departureGovId', 'destinationGovId', 'departureGarageId', 'destinationGarageId', 'departureDate', 'departureTime', 'estimatedDurationMin', 'pricePerSeatIqd', 'originalPriceIqd', 'isSpecialOffer', 'totalSeats', 'availableSeats', 'confirmedSeatsCount', 'bookedSeats', 'status', 'notes', 'liveTrackingEnabled', 'liveLat', 'liveLng', 'lastBookingId', 'createdAt', 'updatedAt']) &&
+        isValidId(data.driverId) &&
+        isValidStr(data.driverName, 2, 100) &&
+        (!('driverRating' in data) || (data.driverRating is number && data.driverRating >= 0 && data.driverRating <= 5)) &&
+        (!('driverCompletedTrips' in data) || (data.driverCompletedTrips is number && data.driverCompletedTrips >= 0)) &&
+        (!('driverVerified' in data) || data.driverVerified is bool) &&
+        isValidId(data.vehicleId) &&
+        isValidStr(data.vehicleModel, 2, 100) &&
+        (!('vehiclePlate' in data) || isValidStr(data.vehiclePlate, 0, 40)) &&
+        (!('vehiclePhotoUrl' in data) || isValidStr(data.vehiclePhotoUrl, 0, 220000)) &&
+        isValidId(data.departureGovId) &&
+        isValidId(data.destinationGovId) &&
+        data.departureGovId != data.destinationGovId &&
+        isValidStr(data.departureGarageId, 1, 64) &&
+        isValidStr(data.destinationGarageId, 1, 64) &&
+        isValidStr(data.departureDate, 8, 20) &&
+        isValidStr(data.departureTime, 3, 20) &&
+        (!('estimatedDurationMin' in data) || (data.estimatedDurationMin is number && data.estimatedDurationMin > 0)) &&
+        data.pricePerSeatIqd is number && data.pricePerSeatIqd >= 1000 && data.pricePerSeatIqd <= 500000 &&
+        (!('originalPriceIqd' in data) || (data.originalPriceIqd is number && data.originalPriceIqd >= 0)) &&
+        (!('isSpecialOffer' in data) || data.isSpecialOffer is bool) &&
+        data.totalSeats is number && data.totalSeats >= 1 && data.totalSeats <= 20 &&
+        data.availableSeats is number && data.availableSeats >= 0 && data.availableSeats <= data.totalSeats &&
+        data.confirmedSeatsCount is number && data.confirmedSeatsCount >= 0 && data.confirmedSeatsCount <= data.totalSeats &&
+        (!('bookedSeats' in data) || (data.bookedSeats is list && data.bookedSeats.size() <= 4)) &&
+        data.status in ['scheduled', 'in_progress', 'completed', 'cancelled'] &&
+        (!('notes' in data) || isValidStr(data.notes, 0, 400)) &&
+        (!('liveTrackingEnabled' in data) || data.liveTrackingEnabled is bool) &&
+        (!('liveLat' in data) || data.liveLat is number) &&
+        (!('liveLng' in data) || data.liveLng is number) &&
+        (!('lastBookingId' in data) || isValidStr(data.lastBookingId, 0, 128)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll(['tripId', 'passengerId', 'passengerName', 'driverId', 'seatsCount', 'seatPriceIqd', 'totalPriceIqd', 'pointsRedeemed', 'isFreeTrip', 'status', 'pointsAwarded', 'reviewSubmitted', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['tripId', 'passengerId', 'passengerName', 'passengerPhone', 'driverId', 'driverName', 'driverPhone', 'departureGovId', 'destinationGovId', 'departureDate', 'departureTime', 'seatsCount', 'selectedSeats', 'seatPriceIqd', 'totalPriceIqd', 'pointsRedeemed', 'isFreeTrip', 'isRoundTrip', 'returnTripId', 'passengerNotes', 'useCustomDropOff', 'customDropOffFeeIqd', 'customDropOffLat', 'customDropOffLng', 'customDropOffAddress', 'status', 'cancellationReason', 'rescheduleRequestedDate', 'pointsAwarded', 'referralRewarded', 'reviewSubmitted', 'shareToken', 'createdAt', 'updatedAt']) &&
+        isValidId(data.tripId) &&
+        isValidId(data.passengerId) &&
+        isValidStr(data.passengerName, 2, 100) &&
+        (!('passengerPhone' in data) || isValidStr(data.passengerPhone, 0, 24)) &&
+        isValidId(data.driverId) &&
+        (!('driverName' in data) || isValidStr(data.driverName, 0, 100)) &&
+        (!('driverPhone' in data) || isValidStr(data.driverPhone, 0, 24)) &&
+        (!('departureGovId' in data) || isValidStr(data.departureGovId, 0, 64)) &&
+        (!('destinationGovId' in data) || isValidStr(data.destinationGovId, 0, 64)) &&
+        (!('departureDate' in data) || isValidStr(data.departureDate, 0, 20)) &&
+        (!('departureTime' in data) || isValidStr(data.departureTime, 0, 20)) &&
+        data.seatsCount is number && data.seatsCount >= 1 && data.seatsCount <= 12 &&
+        (!('selectedSeats' in data) || (data.selectedSeats is list && data.selectedSeats.size() >= 1 && data.selectedSeats.size() <= 4)) &&
+        data.seatPriceIqd is number && data.seatPriceIqd >= 0 &&
+        data.totalPriceIqd is number && data.totalPriceIqd >= 0 &&
+        data.pointsRedeemed is number && data.pointsRedeemed >= 0 &&
+        data.isFreeTrip is bool &&
+        (!('isRoundTrip' in data) || data.isRoundTrip is bool) &&
+        (!('returnTripId' in data) || isValidStr(data.returnTripId, 0, 128)) &&
+        (!('passengerNotes' in data) || isValidStr(data.passengerNotes, 0, 300)) &&
+        (!('useCustomDropOff' in data) || data.useCustomDropOff is bool) &&
+        (!('customDropOffFeeIqd' in data) || (data.customDropOffFeeIqd is number && (data.customDropOffFeeIqd == 0 || data.customDropOffFeeIqd == 10000))) &&
+        (!('customDropOffLat' in data) || (data.customDropOffLat is number && data.customDropOffLat >= -90 && data.customDropOffLat <= 90)) &&
+        (!('customDropOffLng' in data) || (data.customDropOffLng is number && data.customDropOffLng >= -180 && data.customDropOffLng <= 180)) &&
+        (!('customDropOffAddress' in data) || isValidStr(data.customDropOffAddress, 0, 240)) &&
+        data.status in ['pending', 'accepted', 'rejected', 'cancelled', 'completed'] &&
+        (!('cancellationReason' in data) || isValidStr(data.cancellationReason, 0, 300)) &&
+        (!('rescheduleRequestedDate' in data) || isValidStr(data.rescheduleRequestedDate, 0, 20)) &&
+        data.pointsAwarded is bool &&
+        (!('referralRewarded' in data) || data.referralRewarded is bool) &&
+        data.reviewSubmitted is bool &&
+        (!('shareToken' in data) || isValidStr(data.shareToken, 0, 64)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll(['bookingId', 'tripId', 'passengerId', 'driverId', 'amountIqd', 'commissionIqd', 'netDriverIqd', 'method', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['bookingId', 'tripId', 'passengerId', 'driverId', 'amountIqd', 'commissionIqd', 'netDriverIqd', 'method', 'status', 'disputeReason', 'confirmedBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.bookingId) &&
+        isValidId(data.tripId) &&
+        isValidId(data.passengerId) &&
+        isValidId(data.driverId) &&
+        data.amountIqd is number && data.amountIqd >= 0 &&
+        data.commissionIqd is number && data.commissionIqd >= 0 &&
+        data.netDriverIqd is number && data.netDriverIqd >= 0 &&
+        data.method in ['cash', 'points'] &&
+        data.status in ['unpaid', 'paid', 'disputed', 'refunded'] &&
+        (!('disputeReason' in data) || isValidStr(data.disputeReason, 0, 400)) &&
+        (!('confirmedBy' in data) || isValidStr(data.confirmedBy, 0, 128)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidWallet(data) {
+      return data.keys().hasAll(['userId', 'balance', 'totalEarned', 'totalRedeemed', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'balance', 'totalEarned', 'totalRedeemed', 'lastBookingId', 'updatedAt']) &&
+        isValidId(data.userId) &&
+        data.balance is number && data.balance >= 0 &&
+        data.totalEarned is number && data.totalEarned >= 0 &&
+        data.totalRedeemed is number && data.totalRedeemed >= 0 &&
+        (!('lastBookingId' in data) || isValidStr(data.lastBookingId, 0, 128)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPointsTx(data) {
+      return data.keys().hasAll(['userId', 'type', 'amount', 'description', 'createdBy', 'createdAt']) &&
+        data.keys().hasOnly(['userId', 'type', 'amount', 'bookingId', 'description', 'createdBy', 'createdAt']) &&
+        isValidId(data.userId) &&
+        data.type in ['earn_trip', 'redeem_trip', 'referral_bonus', 'admin_adjust', 'refund_points'] &&
+        data.amount is number &&
+        (!('bookingId' in data) || isValidStr(data.bookingId, 0, 128)) &&
+        isValidStr(data.description, 1, 240) &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidReferral(data) {
+      return data.keys().hasAll(['referrerId', 'refereeId', 'refereeName', 'referralCode', 'status', 'bonusPointsReferrer', 'bonusPointsReferee', 'createdAt']) &&
+        data.keys().hasOnly(['referrerId', 'refereeId', 'refereeName', 'referralCode', 'status', 'bonusPointsReferrer', 'bonusPointsReferee', 'completedBookingId', 'createdAt', 'completedAt']) &&
+        isValidId(data.referrerId) &&
+        isValidId(data.refereeId) &&
+        data.referrerId != data.refereeId &&
+        isValidStr(data.refereeName, 1, 100) &&
+        isValidStr(data.referralCode, 4, 24) &&
+        data.status in ['pending', 'completed'] &&
+        data.bonusPointsReferrer is number && data.bonusPointsReferrer >= 0 &&
+        data.bonusPointsReferee is number && data.bonusPointsReferee >= 0 &&
+        (!('completedBookingId' in data) || isValidStr(data.completedBookingId, 0, 128)) &&
+        data.createdAt is timestamp &&
+        (!('completedAt' in data) || data.completedAt is timestamp);
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['bookingId', 'tripId', 'driverId', 'passengerId', 'passengerName', 'driverRating', 'vehicleRating', 'experienceRating', 'comment', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['bookingId', 'tripId', 'driverId', 'passengerId', 'passengerName', 'driverRating', 'vehicleRating', 'experienceRating', 'comment', 'status', 'createdAt']) &&
+        isValidId(data.bookingId) &&
+        isValidId(data.tripId) &&
+        isValidId(data.driverId) &&
+        isValidId(data.passengerId) &&
+        isValidStr(data.passengerName, 1, 100) &&
+        data.driverRating is number && data.driverRating >= 1 && data.driverRating <= 5 &&
+        data.vehicleRating is number && data.vehicleRating >= 1 && data.vehicleRating <= 5 &&
+        data.experienceRating is number && data.experienceRating >= 1 && data.experienceRating <= 5 &&
+        isValidStr(data.comment, 0, 600) &&
+        data.status in ['published', 'hidden'] &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['userId', 'titleAr', 'titleKu', 'titleEn', 'bodyAr', 'bodyKu', 'bodyEn', 'type', 'isRead', 'createdAt']) &&
+        data.keys().hasOnly(['userId', 'titleAr', 'titleKu', 'titleEn', 'bodyAr', 'bodyKu', 'bodyEn', 'type', 'relatedId', 'isRead', 'createdAt']) &&
+        isValidId(data.userId) &&
+        isValidStr(data.titleAr, 1, 140) &&
+        isValidStr(data.titleKu, 1, 140) &&
+        isValidStr(data.titleEn, 1, 140) &&
+        isValidStr(data.bodyAr, 1, 360) &&
+        isValidStr(data.bodyKu, 1, 360) &&
+        isValidStr(data.bodyEn, 1, 360) &&
+        data.type in ['booking', 'payment', 'loyalty', 'driver_status', 'seat_alert', 'system'] &&
+        (!('relatedId' in data) || isValidStr(data.relatedId, 0, 128)) &&
+        data.isRead is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidComplaint(data) {
+      return data.keys().hasAll(['userId', 'userName', 'userRole', 'category', 'subject', 'description', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'userName', 'userRole', 'bookingId', 'category', 'subject', 'description', 'status', 'adminNotes', 'createdAt', 'updatedAt']) &&
+        isValidId(data.userId) &&
+        isValidStr(data.userName, 1, 100) &&
+        data.userRole in ['passenger', 'driver'] &&
+        (!('bookingId' in data) || isValidStr(data.bookingId, 0, 128)) &&
+        data.category in ['payment', 'driver_behavior', 'passenger_behavior', 'vehicle', 'app_issue', 'other'] &&
+        isValidStr(data.subject, 2, 140) &&
+        isValidStr(data.description, 4, 1000) &&
+        data.status in ['open', 'investigating', 'resolved', 'dismissed'] &&
+        (!('adminNotes' in data) || isValidStr(data.adminNotes, 0, 500)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSeatAlert(data) {
+      return data.keys().hasAll(['tripId', 'driverId', 'userId', 'requestedSeats', 'notified', 'createdAt']) &&
+        data.keys().hasOnly(['tripId', 'driverId', 'userId', 'requestedSeats', 'notified', 'createdAt']) &&
+        isValidId(data.tripId) &&
+        isValidId(data.driverId) &&
+        isValidId(data.userId) &&
+        data.requestedSeats is number && data.requestedSeats >= 1 && data.requestedSeats <= 10 &&
+        data.notified is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidReferralCode(data) {
+      return data.keys().hasAll(['code', 'ownerId', 'createdAt']) &&
+        data.keys().hasOnly(['code', 'ownerId', 'createdAt']) &&
+        isValidStr(data.code, 4, 24) &&
+        isValidId(data.ownerId) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidSettings(data) {
+      return data.keys().hasAll(['pointsPerTrip', 'freeTripCostPoints', 'maxFreeTripValueIqd', 'referralBonusReferrer', 'referralBonusReferee', 'commissionRatePercent', 'cancellationHoursLimit', 'updatedAt']) &&
+        data.keys().hasOnly(['pointsPerTrip', 'freeTripCostPoints', 'maxFreeTripValueIqd', 'referralBonusReferrer', 'referralBonusReferee', 'commissionRatePercent', 'cancellationHoursLimit', 'supportPhone', 'supportEmail', 'updatedAt']) &&
+        data.pointsPerTrip is number && data.pointsPerTrip >= 0 &&
+        data.freeTripCostPoints is number && data.freeTripCostPoints >= 100 &&
+        data.maxFreeTripValueIqd is number && data.maxFreeTripValueIqd >= 0 &&
+        data.referralBonusReferrer is number && data.referralBonusReferrer >= 0 &&
+        data.referralBonusReferee is number && data.referralBonusReferee >= 0 &&
+        data.commissionRatePercent is number && data.commissionRatePercent >= 0 && data.commissionRatePercent <= 50 &&
+        data.cancellationHoursLimit is number && data.cancellationHoursLimit >= 0 &&
+        (!('supportPhone' in data) || isValidStr(data.supportPhone, 0, 32)) &&
+        (!('supportEmail' in data) || isValidStr(data.supportEmail, 0, 120)) &&
+        data.updatedAt is timestamp;
+    }
+
+    // --- COLLECTIONS ---
+
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isValidId(uid) && isAdmin() && isValidAdminDoc(incoming()) && incoming().uid == uid;
+      allow delete: if isValidId(uid) && isAdmin() && uid != request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin() || (isVerifiedUser() && resource.data.uid == request.auth.uid);
+      allow create: if isValidId(uid) && isOwner(uid) && isValidUser(incoming()) &&
+        incoming().uid == uid &&
+        incoming().accountStatus == 'active' &&
+        (!('verificationStatus' in incoming()) || incoming().verificationStatus == 'pending' || (incoming().role == 'admin' && isBootstrapAdmin())) &&
+        (incoming().role in ['passenger', 'driver'] || (incoming().role == 'admin' && isBootstrapAdmin())) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(uid) && isValidUser(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(uid) &&
+            incoming().role == existing().role &&
+            incoming().accountStatus == existing().accountStatus &&
+            incoming().referralCode == existing().referralCode &&
+            (!('verificationStatus' in incoming()) || ('verificationStatus' in existing() && incoming().verificationStatus == existing().verificationStatus)) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'preferredLanguage', 'governorateId', 'photoUrl', 'updatedAt']))
+        );
+      allow delete: if false;
+
+      match /private/{docId} {
+        allow get: if isValidId(uid) && isValidId(docId) && (isOwner(uid) || isAdmin());
+        allow list: if false;
+        allow create: if isValidId(uid) && isValidId(docId) && docId == 'info' &&
+          (isOwner(uid) || isAdmin()) && isValidUserPrivate(incoming()) &&
+          incoming().uid == uid && incoming().updatedAt == request.time;
+        allow update: if isValidId(uid) && isValidId(docId) && docId == 'info' &&
+          (isOwner(uid) || isAdmin()) && isValidUserPrivate(incoming()) &&
+          incoming().uid == existing().uid && incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phone', 'emergencyContact', 'updatedAt']);
+        allow delete: if false;
+      }
+    }
+
+    match /drivers/{driverId} {
+      allow get: if isValidId(driverId) && (isOwner(driverId) || isAdmin());
+      allow list: if isAdmin() || (isVerifiedUser() && resource.data.uid == request.auth.uid);
+      allow create: if isValidId(driverId) && isOwner(driverId) && isValidDriver(incoming()) &&
+        incoming().uid == driverId &&
+        incoming().verificationStatus == 'pending' &&
+        incoming().ratingAvg == 0 &&
+        incoming().ratingCount == 0 &&
+        incoming().completedTripsCount == 0 &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(driverId) && isValidDriver(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(driverId) &&
+            incoming().verificationStatus == existing().verificationStatus &&
+            incoming().ratingAvg == existing().ratingAvg &&
+            incoming().ratingCount == existing().ratingCount &&
+            incoming().completedTripsCount >= existing().completedTripsCount &&
+            incoming().completedTripsCount <= existing().completedTripsCount + 1 &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phone', 'governorateId', 'homeGarageId', 'licenseNumber', 'nationalIdNumber', 'idDocumentUrl', 'licenseDocumentUrl', 'operatingGovIds', 'isAvailable', 'bio', 'completedTripsCount', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    match /public_drivers/{driverId} {
+      allow get: if isValidId(driverId);
+      allow list: if resource.data.verificationStatus == 'approved' || isAdmin() || (isVerifiedUser() && resource.data.uid == request.auth.uid);
+      allow create: if isValidId(driverId) && (isOwner(driverId) || isAdmin()) &&
+        isValidPublicDriver(incoming()) &&
+        incoming().uid == driverId &&
+        (isAdmin() || (incoming().verificationStatus == 'pending' && incoming().ratingAvg == 0 && incoming().ratingCount == 0 && incoming().completedTripsCount == 0)) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(driverId) && isValidPublicDriver(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(driverId) &&
+            incoming().verificationStatus == existing().verificationStatus &&
+            incoming().ratingAvg == existing().ratingAvg &&
+            incoming().ratingCount == existing().ratingCount &&
+            incoming().completedTripsCount >= existing().completedTripsCount &&
+            incoming().completedTripsCount <= existing().completedTripsCount + 1 &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'governorateId', 'homeGarageId', 'operatingGovIds', 'isAvailable', 'vehicleModel', 'vehiclePhotoUrl', 'bio', 'completedTripsCount', 'updatedAt'])) ||
+          (isVerifiedUser() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['ratingAvg', 'ratingCount', 'updatedAt']) &&
+            incoming().ratingCount == existing().ratingCount + 1)
+        );
+      allow delete: if false;
+    }
+
+    match /vehicles/{vehicleId} {
+      allow get: if isValidId(vehicleId);
+      allow list: if resource.data.verified == true || isAdmin() || (isVerifiedUser() && resource.data.driverId == request.auth.uid);
+      allow create: if isValidId(vehicleId) && isVerifiedUser() && isValidVehicle(incoming()) &&
+        incoming().driverId == request.auth.uid &&
+        (isAdmin() || incoming().verified == false) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(vehicleId) && isValidVehicle(incoming()) &&
+        incoming().driverId == existing().driverId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(existing().driverId) &&
+            incoming().verified == existing().verified &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['makeModel', 'year', 'plateNumber', 'color', 'passengerCapacity', 'hasAc', 'hasWifi', 'photoUrl', 'updatedAt']))
+        );
+      allow delete: if isValidId(vehicleId) && (isAdmin() || isOwner(existing().driverId));
+    }
+
+    match /governorates/{govId} {
+      allow get: if isValidId(govId);
+      allow list: if resource.data.isActive == true || isAdmin();
+      allow create, update, delete: if isValidId(govId) && isAdmin() && (request.method == 'delete' || isValidGovernorate(incoming()));
+    }
+
+    match /cities/{cityId} {
+      allow get: if isValidId(cityId);
+      allow list: if resource.data.isActive == true || isAdmin();
+      allow create, update, delete: if isValidId(cityId) && isAdmin() && (request.method == 'delete' || isValidCity(incoming()));
+    }
+
+    match /garages/{garageId} {
+      allow get: if isValidId(garageId);
+      allow list: if resource.data.isActive == true || isAdmin();
+      allow create, update, delete: if isValidId(garageId) && isAdmin() && (request.method == 'delete' || isValidGarage(incoming()));
+    }
+
+    match /platform_settings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if false;
+      allow create, update: if isValidId(settingId) && settingId == 'global' && isAdmin() &&
+        isValidSettings(incoming()) && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /trips/{tripId} {
+      allow get: if isValidId(tripId);
+      allow list: if resource.data.status in ['scheduled', 'in_progress', 'completed'] || isAdmin() || (isVerifiedUser() && resource.data.driverId == request.auth.uid);
+      allow create: if isValidId(tripId) && isVerifiedUser() &&
+        isValidTrip(incoming()) &&
+        incoming().driverId == request.auth.uid &&
+        isApprovedDriver(request.auth.uid) &&
+        incoming().availableSeats == incoming().totalSeats &&
+        incoming().confirmedSeatsCount == 0 &&
+        incoming().status == 'scheduled' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(tripId) && isVerifiedUser() && isValidTrip(incoming()) &&
+        incoming().driverId == existing().driverId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          // Driver updating details before any confirmed booking
+          (isOwner(existing().driverId) && existing().confirmedSeatsCount == 0 &&
+            existing().status == 'scheduled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['departureDate', 'departureTime', 'pricePerSeatIqd', 'originalPriceIqd', 'isSpecialOffer', 'totalSeats', 'availableSeats', 'notes', 'status', 'updatedAt'])) ||
+          // Driver updating operational status, seat inventory during booking actions, or live tracking
+          (isOwner(existing().driverId) &&
+            existing().status in ['scheduled', 'in_progress'] &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['availableSeats', 'confirmedSeatsCount', 'bookedSeats', 'status', 'liveTrackingEnabled', 'liveLat', 'liveLng', 'lastBookingId', 'updatedAt'])) ||
+          // Passenger atomically reserving cabin seat(s) while creating a pending booking
+          ('lastBookingId' in incoming() &&
+            isValidId(incoming().lastBookingId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['bookedSeats', 'lastBookingId', 'updatedAt']) &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.tripId == tripId &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.passengerId == request.auth.uid &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.status == 'pending') ||
+          // Passenger atomically releasing seats on cancelling their own pending or accepted booking
+          ('lastBookingId' in incoming() &&
+            isValidId(incoming().lastBookingId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['availableSeats', 'confirmedSeatsCount', 'bookedSeats', 'lastBookingId', 'updatedAt']) &&
+            get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.tripId == tripId &&
+            get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.passengerId == request.auth.uid &&
+            get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.status in ['pending', 'accepted'] &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.status == 'cancelled')
+        );
+      allow delete: if false;
+    }
+
+    match /bookings/{bookingId} {
+      allow get: if isValidId(bookingId) && (
+        isAdmin() ||
+        (isVerifiedUser() && (existing().passengerId == request.auth.uid || existing().driverId == request.auth.uid))
+      );
+      allow list: if isAdmin() || (
+        isVerifiedUser() && (resource.data.passengerId == request.auth.uid || resource.data.driverId == request.auth.uid)
+      );
+      allow create: if isValidId(bookingId) && isVerifiedUser() &&
+        isValidBooking(incoming()) &&
+        incoming().passengerId == request.auth.uid &&
+        incoming().driverId != request.auth.uid &&
+        incoming().status == 'pending' &&
+        incoming().pointsAwarded == false &&
+        incoming().reviewSubmitted == false &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/trips/$(incoming().tripId)) &&
+        get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.driverId == incoming().driverId &&
+        get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.status == 'scheduled' &&
+        get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.availableSeats >= incoming().seatsCount &&
+        incoming().seatPriceIqd == get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.pricePerSeatIqd &&
+        (
+          (incoming().isFreeTrip == false &&
+            incoming().pointsRedeemed == 0 &&
+            (
+              ((!('useCustomDropOff' in incoming()) || incoming().useCustomDropOff == false) &&
+                (!('customDropOffFeeIqd' in incoming()) || incoming().customDropOffFeeIqd == 0) &&
+                incoming().totalPriceIqd == incoming().seatPriceIqd * incoming().seatsCount) ||
+              (('useCustomDropOff' in incoming() && incoming().useCustomDropOff == true) &&
+                ('customDropOffFeeIqd' in incoming() && incoming().customDropOffFeeIqd == 10000) &&
+                ('customDropOffLat' in incoming()) &&
+                ('customDropOffLng' in incoming()) &&
+                incoming().totalPriceIqd == incoming().seatPriceIqd * incoming().seatsCount + 10000)
+            )) ||
+          (incoming().isFreeTrip == true &&
+            incoming().seatsCount == 1 &&
+            incoming().pointsRedeemed >= 100 &&
+            incoming().totalPriceIqd >= 0 &&
+            getAfter(/databases/$(database)/documents/points_wallets/$(request.auth.uid)).data.balance ==
+              get(/databases/$(database)/documents/points_wallets/$(request.auth.uid)).data.balance - incoming().pointsRedeemed)
+        );
+      allow update: if isValidId(bookingId) && isVerifiedUser() && isValidBooking(incoming()) &&
+        incoming().tripId == existing().tripId &&
+        incoming().passengerId == existing().passengerId &&
+        incoming().driverId == existing().driverId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          // Driver accepts pending booking
+          (isOwner(existing().driverId) && existing().status == 'pending' && incoming().status == 'accepted' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'driverPhone', 'updatedAt'])) ||
+          // Driver rejects pending booking
+          (isOwner(existing().driverId) && existing().status == 'pending' && incoming().status == 'rejected' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'cancellationReason', 'updatedAt'])) ||
+          // Driver completes accepted booking
+          (isOwner(existing().driverId) && existing().status == 'accepted' && incoming().status == 'completed' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'pointsAwarded', 'referralRewarded', 'updatedAt'])) ||
+          // Passenger or driver cancels pending/accepted booking
+          ((isOwner(existing().passengerId) || isOwner(existing().driverId)) &&
+            existing().status in ['pending', 'accepted'] && incoming().status == 'cancelled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'cancellationReason', 'updatedAt'])) ||
+          // Passenger requests reschedule on pending/accepted booking
+          (isOwner(existing().passengerId) &&
+            existing().status in ['pending', 'accepted'] &&
+            incoming().status == existing().status &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['rescheduleRequestedDate', 'passengerNotes', 'updatedAt'])) ||
+          // Passenger marks reviewSubmitted after submitting review
+          (isOwner(existing().passengerId) &&
+            existing().status == 'completed' &&
+            existing().reviewSubmitted == false &&
+            incoming().reviewSubmitted == true &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['reviewSubmitted', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && (
+        isAdmin() ||
+        (isVerifiedUser() && (existing().passengerId == request.auth.uid || existing().driverId == request.auth.uid))
+      );
+      allow list: if isAdmin() || (
+        isVerifiedUser() && (resource.data.passengerId == request.auth.uid || resource.data.driverId == request.auth.uid)
+      );
+      allow create: if isValidId(paymentId) && isVerifiedUser() &&
+        isValidPayment(incoming()) &&
+        paymentId == incoming().bookingId &&
+        (isAdmin() || incoming().driverId == request.auth.uid) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(paymentId) && isVerifiedUser() && isValidPayment(incoming()) &&
+        incoming().bookingId == existing().bookingId &&
+        incoming().passengerId == existing().passengerId &&
+        incoming().driverId == existing().driverId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          // Driver confirms cash payment
+          (isOwner(existing().driverId) && existing().status in ['unpaid', 'disputed'] && incoming().status == 'paid' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'confirmedBy', 'updatedAt'])) ||
+          // Passenger disputes payment
+          (isOwner(existing().passengerId) && existing().status in ['unpaid', 'paid'] && incoming().status == 'disputed' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'disputeReason', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    match /points_wallets/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isVerifiedUser() && resource.data.userId == request.auth.uid);
+      allow create: if isValidId(userId) && (isOwner(userId) || isAdmin()) &&
+        isValidWallet(incoming()) &&
+        incoming().userId == userId &&
+        (isAdmin() || (incoming().balance == 0 && incoming().totalEarned == 0 && incoming().totalRedeemed == 0)) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isVerifiedUser() && isValidWallet(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          // Passenger redeeming points atomically while creating a free-trip booking
+          (isOwner(userId) && 'lastBookingId' in incoming() && isValidId(incoming().lastBookingId) &&
+            incoming().balance < existing().balance &&
+            incoming().totalEarned == existing().totalEarned &&
+            incoming().totalRedeemed == existing().totalRedeemed + (existing().balance - incoming().balance) &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.passengerId == userId &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.isFreeTrip == true &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.pointsRedeemed == (existing().balance - incoming().balance) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'totalRedeemed', 'lastBookingId', 'updatedAt'])) ||
+          // Approved driver awarding points atomically on booking completion
+          ('lastBookingId' in incoming() && isValidId(incoming().lastBookingId) &&
+            incoming().balance > existing().balance &&
+            incoming().totalRedeemed == existing().totalRedeemed &&
+            get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.driverId == request.auth.uid &&
+            get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.status == 'accepted' &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.status == 'completed' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'totalEarned', 'lastBookingId', 'updatedAt'])) ||
+          // Refunding redeemed points atomically when a free-trip booking is rejected or cancelled
+          ('lastBookingId' in incoming() && isValidId(incoming().lastBookingId) &&
+            incoming().balance > existing().balance &&
+            get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.passengerId == userId &&
+            get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.isFreeTrip == true &&
+            get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.status in ['pending', 'accepted'] &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.status in ['rejected', 'cancelled'] &&
+            incoming().balance == existing().balance + get(/databases/$(database)/documents/bookings/$(incoming().lastBookingId)).data.pointsRedeemed &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'totalRedeemed', 'lastBookingId', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    match /points_transactions/{txId} {
+      allow get: if isValidId(txId) && (isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isVerifiedUser() && resource.data.userId == request.auth.uid);
+      allow create: if isValidId(txId) && isVerifiedUser() && isValidPointsTx(incoming()) &&
+        incoming().createdAt == request.time && (
+          isAdmin() ||
+          // Passenger recording redemption or refund linked to their booking
+          (incoming().userId == request.auth.uid && incoming().type in ['redeem_trip', 'refund_points'] &&
+            'bookingId' in incoming() && isValidId(incoming().bookingId) &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.passengerId == request.auth.uid) ||
+          // Driver recording trip/referral earn linked to their completed booking
+          (incoming().type in ['earn_trip', 'referral_bonus'] &&
+            'bookingId' in incoming() && isValidId(incoming().bookingId) &&
+            get(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.driverId == request.auth.uid &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.status == 'completed') ||
+          // Passenger recording refund when driver cancels/rejects
+          (incoming().type == 'refund_points' &&
+            'bookingId' in incoming() && isValidId(incoming().bookingId) &&
+            get(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.driverId == request.auth.uid &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.status in ['rejected', 'cancelled'])
+        );
+      allow update, delete: if false;
+    }
+
+    match /referrals/{referralId} {
+      allow get: if isValidId(referralId) && (
+        isAdmin() ||
+        (isVerifiedUser() && (existing().referrerId == request.auth.uid || existing().refereeId == request.auth.uid))
+      );
+      allow list: if isAdmin() || (
+        isVerifiedUser() && (resource.data.referrerId == request.auth.uid || resource.data.refereeId == request.auth.uid)
+      );
+      allow create: if isValidId(referralId) && isVerifiedUser() &&
+        referralId == incoming().refereeId &&
+        isValidReferral(incoming()) &&
+        incoming().refereeId == request.auth.uid &&
+        incoming().status == 'pending' &&
+        exists(/databases/$(database)/documents/users/$(incoming().referrerId)) &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(referralId) && isVerifiedUser() && isValidReferral(incoming()) &&
+        incoming().referrerId == existing().referrerId &&
+        incoming().refereeId == existing().refereeId &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (existing().status == 'pending' && incoming().status == 'completed' &&
+            'completedBookingId' in incoming() && isValidId(incoming().completedBookingId) &&
+            get(/databases/$(database)/documents/bookings/$(incoming().completedBookingId)).data.passengerId == existing().refereeId &&
+            get(/databases/$(database)/documents/bookings/$(incoming().completedBookingId)).data.driverId == request.auth.uid &&
+            getAfter(/databases/$(database)/documents/bookings/$(incoming().completedBookingId)).data.status == 'completed' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedBookingId', 'completedAt']))
+        );
+      allow delete: if false;
+    }
+
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId) && (
+        existing().status == 'published' || isAdmin() ||
+        (isVerifiedUser() && (existing().passengerId == request.auth.uid || existing().driverId == request.auth.uid))
+      );
+      allow list: if resource.data.status == 'published' || isAdmin() || (
+        isVerifiedUser() && (resource.data.passengerId == request.auth.uid || resource.data.driverId == request.auth.uid)
+      );
+      allow create: if isValidId(reviewId) && isVerifiedUser() &&
+        reviewId == incoming().bookingId &&
+        isValidReview(incoming()) &&
+        incoming().passengerId == request.auth.uid &&
+        incoming().status == 'published' &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/bookings/$(incoming().bookingId)) &&
+        get(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.passengerId == request.auth.uid &&
+        get(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.status == 'completed' &&
+        get(/databases/$(database)/documents/bookings/$(incoming().bookingId)).data.reviewSubmitted == false;
+      allow update: if isValidId(reviewId) && isAdmin() && isValidReview(incoming()) &&
+        incoming().bookingId == existing().bookingId &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      allow delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && (isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isVerifiedUser() && resource.data.userId == request.auth.uid);
+      allow create: if isValidId(notificationId) && isVerifiedUser() && isValidNotification(incoming()) &&
+        incoming().isRead == false && incoming().createdAt == request.time;
+      allow update: if isValidId(notificationId) && isVerifiedUser() && isValidNotification(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']))
+        );
+      allow delete: if isValidId(notificationId) && (isAdmin() || isOwner(existing().userId));
+    }
+
+    match /complaints/{complaintId} {
+      allow get: if isValidId(complaintId) && (isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isVerifiedUser() && resource.data.userId == request.auth.uid);
+      allow create: if isValidId(complaintId) && isVerifiedUser() && isValidComplaint(incoming()) &&
+        incoming().userId == request.auth.uid &&
+        incoming().status == 'open' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(complaintId) && isAdmin() && isValidComplaint(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminNotes', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /seat_alerts/{alertId} {
+      allow get: if isValidId(alertId) && (isAdmin() || (isVerifiedUser() && (existing().userId == request.auth.uid || existing().driverId == request.auth.uid)));
+      allow list: if isAdmin() || (isVerifiedUser() && (resource.data.userId == request.auth.uid || resource.data.driverId == request.auth.uid));
+      allow create: if isValidId(alertId) && isVerifiedUser() && isValidSeatAlert(incoming()) &&
+        incoming().userId == request.auth.uid &&
+        incoming().notified == false &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(alertId) && isVerifiedUser() && isValidSeatAlert(incoming()) &&
+        (isAdmin() || isOwner(existing().userId) || isOwner(existing().driverId)) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['notified']);
+      allow delete: if isValidId(alertId) && (isAdmin() || isOwner(existing().userId));
+    }
+
+    match /referral_codes/{code} {
+      allow get: if isValidId(code) && isVerifiedUser();
+      allow list: if false;
+      allow create: if isValidId(code) && isVerifiedUser() &&
+        isValidReferralCode(incoming()) &&
+        incoming().code == code &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}

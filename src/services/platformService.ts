@@ -1,0 +1,1643 @@
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  runTransaction,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch,
+} from 'firebase/firestore';
+import { BOOTSTRAP_ADMIN_EMAIL, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  DEFAULT_PLATFORM_SETTINGS,
+  IRAQ_CITIES,
+  IRAQ_GARAGES,
+  IRAQ_GOVERNORATES,
+} from '../data/iraqReferenceData';
+import type {
+  AccountStatus,
+  Booking,
+  CabinSeatId,
+  City,
+  Complaint,
+  DriverProfile,
+  Garage,
+  Governorate,
+  LanguageCode,
+  Payment,
+  PaymentStatus,
+  PlatformSettings,
+  PointsWallet,
+  PublicDriverProfile,
+  Referral,
+  Trip,
+  TripStatus,
+  UserProfile,
+  UserRole,
+  Vehicle,
+  VerificationStatus,
+} from '../types/domain';
+
+function generateReferralCode(uid: string): string {
+  const clean = uid.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 4) || 'USER';
+  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `MASAR-${clean}${rand}`;
+}
+
+function generateShareToken(): string {
+  return Math.random().toString(36).substring(2, 10).toUpperCase();
+}
+
+export async function seedIraqReferenceData(force = false): Promise<void> {
+  try {
+    const govSnap = await getDocs(collection(db, 'governorates'));
+    if (govSnap.empty || force) {
+      const batch = writeBatch(db);
+      for (const gov of IRAQ_GOVERNORATES) {
+        batch.set(doc(db, 'governorates', gov.id), {
+          code: gov.code,
+          nameAr: gov.nameAr,
+          nameKu: gov.nameKu,
+          nameEn: gov.nameEn,
+          lat: gov.lat,
+          lng: gov.lng,
+          isActive: gov.isActive,
+        });
+      }
+      for (const city of IRAQ_CITIES) {
+        batch.set(doc(db, 'cities', city.id), {
+          governorateId: city.governorateId,
+          nameAr: city.nameAr,
+          nameKu: city.nameKu,
+          nameEn: city.nameEn,
+          isActive: city.isActive,
+        });
+      }
+      for (const garage of IRAQ_GARAGES) {
+        batch.set(doc(db, 'garages', garage.id), {
+          governorateId: garage.governorateId,
+          cityId: garage.cityId || '',
+          nameAr: garage.nameAr,
+          nameKu: garage.nameKu,
+          nameEn: garage.nameEn,
+          addressAr: garage.addressAr || '',
+          addressKu: garage.addressKu || '',
+          addressEn: garage.addressEn || '',
+          lat: garage.lat,
+          lng: garage.lng,
+          operatingHours: garage.operatingHours || '05:00 - 22:00',
+          isActive: garage.isActive,
+        });
+      }
+      const settingsSnap = await getDoc(doc(db, 'platform_settings', 'global'));
+      if (!settingsSnap.exists()) {
+        batch.set(doc(db, 'platform_settings', 'global'), {
+          ...DEFAULT_PLATFORM_SETTINGS,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'governorates');
+  }
+}
+
+export async function ensureAdminDocument(uid: string, email: string): Promise<void> {
+  if (email !== BOOTSTRAP_ADMIN_EMAIL) return;
+  try {
+    const adminRef = doc(db, 'admins', uid);
+    const snap = await getDoc(adminRef);
+    if (!snap.exists()) {
+      await setDoc(adminRef, {
+        uid,
+        email,
+        grantedAt: serverTimestamp(),
+      });
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `admins/${uid}`);
+  }
+}
+
+export interface RegisterProfilePayload {
+  uid: string;
+  email: string;
+  displayName: string;
+  phone: string;
+  role: UserRole;
+  preferredLanguage: LanguageCode;
+  governorateId: string;
+  photoUrl?: string;
+  portraitUrl?: string;
+  verificationStatus?: VerificationStatus;
+  referralCodeInput?: string;
+  // Driver / verification fields
+  homeGarageId?: string;
+  nationalIdNumber?: string;
+  licenseNumber?: string;
+  idDocumentUrl?: string;
+  licenseDocumentUrl?: string;
+  vehicleModel?: string;
+  vehicleYear?: number;
+  plateNumber?: string;
+  vehicleColor?: string;
+  passengerCapacity?: number;
+  vehiclePhotoUrl?: string;
+}
+
+export async function registerUserProfile(payload: RegisterProfilePayload): Promise<void> {
+  const {
+    uid,
+    email,
+    displayName,
+    phone,
+    role,
+    preferredLanguage,
+    governorateId,
+    photoUrl,
+    referralCodeInput,
+  } = payload;
+
+  let referrerId: string | undefined;
+  const cleanRefCode = (referralCodeInput || '').trim().toUpperCase();
+
+  if (cleanRefCode) {
+    const refSnap = await getDoc(doc(db, 'referral_codes', cleanRefCode));
+    if (!refSnap.exists()) {
+      throw new Error('INVALID_REFERRAL_CODE');
+    }
+    const ownerId = refSnap.data().ownerId as string;
+    if (ownerId === uid) {
+      throw new Error('SELF_REFERRAL_BLOCKED');
+    }
+    referrerId = ownerId;
+  }
+
+  const finalRole: UserRole = email === BOOTSTRAP_ADMIN_EMAIL && role === 'admin' ? 'admin' : role === 'admin' ? 'passenger' : role;
+  const myReferralCode = generateReferralCode(uid);
+
+  try {
+    const settingsSnap = await getDoc(doc(db, 'platform_settings', 'global'));
+    const settings = settingsSnap.exists()
+      ? (settingsSnap.data() as PlatformSettings)
+      : DEFAULT_PLATFORM_SETTINGS;
+
+    const batch = writeBatch(db);
+
+    const userDoc: Record<string, unknown> = {
+      uid,
+      displayName: displayName.trim(),
+      role: finalRole,
+      accountStatus: 'active',
+      verificationStatus: finalRole === 'admin' ? 'approved' : (payload.verificationStatus || 'pending'),
+      preferredLanguage,
+      referralCode: myReferralCode,
+      governorateId,
+      photoUrl: payload.portraitUrl || photoUrl || '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    if (payload.idDocumentUrl) {
+      userDoc.idDocumentUrl = payload.idDocumentUrl;
+    }
+    if (payload.portraitUrl) {
+      userDoc.portraitUrl = payload.portraitUrl;
+    }
+    if (payload.licenseDocumentUrl) {
+      userDoc.licenseDocumentUrl = payload.licenseDocumentUrl;
+    }
+    if (payload.vehicleModel && payload.vehicleModel.trim()) {
+      userDoc.vehicleModel = payload.vehicleModel.trim();
+    }
+    if (payload.plateNumber && payload.plateNumber.trim()) {
+      userDoc.plateNumber = payload.plateNumber.trim();
+    }
+    if (referrerId) {
+      userDoc.referredBy = referrerId;
+    }
+
+    batch.set(doc(db, 'users', uid), userDoc);
+    batch.set(doc(db, 'users', uid, 'private', 'info'), {
+      uid,
+      email,
+      phone: phone.trim(),
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(db, 'points_wallets', uid), {
+      userId: uid,
+      balance: 0,
+      totalEarned: 0,
+      totalRedeemed: 0,
+      updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(db, 'referral_codes', myReferralCode), {
+      code: myReferralCode,
+      ownerId: uid,
+      createdAt: serverTimestamp(),
+    });
+
+    if (referrerId) {
+      batch.set(doc(db, 'referrals', uid), {
+        referrerId,
+        refereeId: uid,
+        refereeName: displayName.trim(),
+        referralCode: cleanRefCode,
+        status: 'pending',
+        bonusPointsReferrer: settings.referralBonusReferrer,
+        bonusPointsReferee: settings.referralBonusReferee,
+        createdAt: serverTimestamp(),
+      });
+    }
+
+    if (finalRole === 'driver') {
+      batch.set(doc(db, 'drivers', uid), {
+        uid,
+        fullName: displayName.trim(),
+        phone: phone.trim(),
+        governorateId,
+        homeGarageId: payload.homeGarageId || '',
+        licenseNumber: (payload.licenseNumber || 'PENDING').trim(),
+        nationalIdNumber: (payload.nationalIdNumber || 'PENDING').trim(),
+        idDocumentUrl: payload.idDocumentUrl || '',
+        licenseDocumentUrl: payload.licenseDocumentUrl || '',
+        operatingGovIds: [governorateId],
+        verificationStatus: 'pending',
+        isAvailable: true,
+        ratingAvg: 0,
+        ratingCount: 0,
+        completedTripsCount: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      batch.set(doc(db, 'public_drivers', uid), {
+        uid,
+        fullName: displayName.trim(),
+        governorateId,
+        homeGarageId: payload.homeGarageId || '',
+        operatingGovIds: [governorateId],
+        verificationStatus: 'pending',
+        isAvailable: true,
+        ratingAvg: 0,
+        ratingCount: 0,
+        completedTripsCount: 0,
+        vehicleModel: (payload.vehicleModel || '').trim(),
+        vehiclePhotoUrl: payload.vehiclePhotoUrl || '',
+        updatedAt: serverTimestamp(),
+      });
+      if (payload.vehicleModel && payload.plateNumber) {
+        const vehicleRef = doc(collection(db, 'vehicles'));
+        batch.set(vehicleRef, {
+          driverId: uid,
+          makeModel: payload.vehicleModel.trim(),
+          year: Number(payload.vehicleYear) || 2022,
+          plateNumber: payload.plateNumber.trim(),
+          color: (payload.vehicleColor || '').trim(),
+          passengerCapacity: Number(payload.passengerCapacity) || 4,
+          hasAc: true,
+          hasWifi: false,
+          photoUrl: payload.vehiclePhotoUrl || '',
+          verified: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `users/${uid}`);
+  }
+}
+
+export async function updatePassengerProfile(
+  uid: string,
+  updates: { displayName: string; phone: string; governorateId: string; preferredLanguage: LanguageCode; email: string }
+): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', uid), {
+      displayName: updates.displayName.trim(),
+      governorateId: updates.governorateId,
+      preferredLanguage: updates.preferredLanguage,
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(db, 'users', uid, 'private', 'info'), {
+      email: updates.email,
+      phone: updates.phone.trim(),
+      updatedAt: serverTimestamp(),
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+  }
+}
+
+export async function updateDriverDocumentsAndVehicle(
+  uid: string,
+  driverData: {
+    fullName: string;
+    phone: string;
+    governorateId: string;
+    homeGarageId: string;
+    licenseNumber: string;
+    nationalIdNumber: string;
+    idDocumentUrl?: string;
+    licenseDocumentUrl?: string;
+    bio?: string;
+  },
+  vehicleData: {
+    vehicleId?: string;
+    makeModel: string;
+    year: number;
+    plateNumber: string;
+    color: string;
+    passengerCapacity: number;
+    hasAc: boolean;
+    photoUrl?: string;
+  }
+): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    const driverPatch: Record<string, unknown> = {
+      fullName: driverData.fullName.trim(),
+      phone: driverData.phone.trim(),
+      governorateId: driverData.governorateId,
+      homeGarageId: driverData.homeGarageId,
+      licenseNumber: driverData.licenseNumber.trim(),
+      nationalIdNumber: driverData.nationalIdNumber.trim(),
+      bio: (driverData.bio || '').trim(),
+      updatedAt: serverTimestamp(),
+    };
+    if (driverData.idDocumentUrl !== undefined) driverPatch.idDocumentUrl = driverData.idDocumentUrl;
+    if (driverData.licenseDocumentUrl !== undefined) driverPatch.licenseDocumentUrl = driverData.licenseDocumentUrl;
+
+    batch.update(doc(db, 'drivers', uid), driverPatch);
+    batch.update(doc(db, 'public_drivers', uid), {
+      fullName: driverData.fullName.trim(),
+      governorateId: driverData.governorateId,
+      homeGarageId: driverData.homeGarageId,
+      vehicleModel: vehicleData.makeModel.trim(),
+      vehiclePhotoUrl: vehicleData.photoUrl || '',
+      bio: (driverData.bio || '').trim(),
+      updatedAt: serverTimestamp(),
+    });
+
+    if (vehicleData.vehicleId) {
+      batch.update(doc(db, 'vehicles', vehicleData.vehicleId), {
+        makeModel: vehicleData.makeModel.trim(),
+        year: Number(vehicleData.year),
+        plateNumber: vehicleData.plateNumber.trim(),
+        color: vehicleData.color.trim(),
+        passengerCapacity: Number(vehicleData.passengerCapacity),
+        hasAc: vehicleData.hasAc,
+        photoUrl: vehicleData.photoUrl || '',
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      const vRef = doc(collection(db, 'vehicles'));
+      batch.set(vRef, {
+        driverId: uid,
+        makeModel: vehicleData.makeModel.trim(),
+        year: Number(vehicleData.year),
+        plateNumber: vehicleData.plateNumber.trim(),
+        color: vehicleData.color.trim(),
+        passengerCapacity: Number(vehicleData.passengerCapacity),
+        hasAc: vehicleData.hasAc,
+        hasWifi: false,
+        photoUrl: vehicleData.photoUrl || '',
+        verified: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `drivers/${uid}`);
+  }
+}
+
+export async function toggleDriverAvailability(uid: string, isAvailable: boolean): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'drivers', uid), { isAvailable, updatedAt: serverTimestamp() });
+    batch.update(doc(db, 'public_drivers', uid), { isAvailable, updatedAt: serverTimestamp() });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `drivers/${uid}`);
+  }
+}
+
+export async function publishTrip(input: {
+  driver: DriverProfile;
+  vehicle: Vehicle;
+  departureGovId: string;
+  destinationGovId: string;
+  departureGarageId: string;
+  destinationGarageId: string;
+  departureDate: string;
+  departureTime: string;
+  estimatedDurationMin: number;
+  pricePerSeatIqd: number;
+  originalPriceIqd?: number;
+  totalSeats: number;
+  notes?: string;
+}): Promise<string> {
+  if (input.driver.verificationStatus !== 'approved') {
+    throw new Error('UNAPPROVED_DRIVER');
+  }
+  if (input.departureGovId === input.destinationGovId) {
+    throw new Error('SAME_GOVERNORATE');
+  }
+  const tripRef = doc(collection(db, 'trips'));
+  const hasDiscount = Boolean(input.originalPriceIqd && input.originalPriceIqd > input.pricePerSeatIqd);
+
+  try {
+    await setDoc(tripRef, {
+      driverId: input.driver.uid,
+      driverName: input.driver.fullName,
+      driverRating: input.driver.ratingAvg || 5,
+      driverCompletedTrips: input.driver.completedTripsCount || 0,
+      driverVerified: true,
+      vehicleId: input.vehicle.id,
+      vehicleModel: `${input.vehicle.makeModel} (${input.vehicle.year})`,
+      vehiclePlate: input.vehicle.plateNumber,
+      vehiclePhotoUrl: input.vehicle.photoUrl || '',
+      departureGovId: input.departureGovId,
+      destinationGovId: input.destinationGovId,
+      departureGarageId: input.departureGarageId,
+      destinationGarageId: input.destinationGarageId,
+      departureDate: input.departureDate,
+      departureTime: input.departureTime,
+      estimatedDurationMin: Number(input.estimatedDurationMin) || 180,
+      pricePerSeatIqd: Number(input.pricePerSeatIqd),
+      originalPriceIqd: hasDiscount ? Number(input.originalPriceIqd) : 0,
+      isSpecialOffer: hasDiscount,
+      totalSeats: Number(input.totalSeats),
+      availableSeats: Number(input.totalSeats),
+      confirmedSeatsCount: 0,
+      bookedSeats: [],
+      status: 'scheduled',
+      notes: (input.notes || '').trim().slice(0, 400),
+      liveTrackingEnabled: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return tripRef.id;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, `trips/${tripRef.id}`);
+  }
+}
+
+export async function updateTripStatus(tripId: string, status: TripStatus): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'trips', tripId), {
+      status,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `trips/${tripId}`);
+  }
+}
+
+export async function updateTripLiveLocation(
+  tripId: string,
+  enabled: boolean,
+  lat?: number,
+  lng?: number
+): Promise<void> {
+  try {
+    const patch: Record<string, unknown> = {
+      liveTrackingEnabled: enabled,
+      updatedAt: serverTimestamp(),
+    };
+    if (typeof lat === 'number' && typeof lng === 'number') {
+      patch.liveLat = lat;
+      patch.liveLng = lng;
+    }
+    await updateDoc(doc(db, 'trips', tripId), patch);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `trips/${tripId}`);
+  }
+}
+
+export const CUSTOM_DROPOFF_FEE_IQD = 10000;
+
+export async function createBookingTransaction(input: {
+  trip: Trip;
+  passenger: UserProfile;
+  passengerPhone: string;
+  seatsCount: number;
+  selectedSeats?: CabinSeatId[];
+  notes?: string;
+  useCustomDropOff?: boolean;
+  customDropOffLat?: number;
+  customDropOffLng?: number;
+  customDropOffAddress?: string;
+  redeemFreeTrip: boolean;
+  settings: PlatformSettings;
+  returnTrip?: Trip | null;
+}): Promise<string> {
+  const {
+    trip,
+    passenger,
+    passengerPhone,
+    seatsCount,
+    selectedSeats,
+    notes,
+    useCustomDropOff,
+    customDropOffLat,
+    customDropOffLng,
+    customDropOffAddress,
+    redeemFreeTrip,
+    settings,
+    returnTrip,
+  } = input;
+  const chosenSeats = Array.from(new Set(selectedSeats || []));
+  const effectiveSeatsCount = chosenSeats.length > 0 ? chosenSeats.length : seatsCount;
+  const hasCustomDropOff =
+    Boolean(useCustomDropOff) &&
+    typeof customDropOffLat === 'number' &&
+    typeof customDropOffLng === 'number';
+  const customDropOffFeeIqd = hasCustomDropOff ? CUSTOM_DROPOFF_FEE_IQD : 0;
+
+  if (trip.driverId === passenger.uid) {
+    throw new Error('CANNOT_BOOK_OWN_TRIP');
+  }
+  if (redeemFreeTrip && effectiveSeatsCount !== 1) {
+    throw new Error('FREE_TRIP_SINGLE_SEAT_ONLY');
+  }
+  if (redeemFreeTrip && trip.pricePerSeatIqd > settings.maxFreeTripValueIqd) {
+    throw new Error('EXCEEDS_MAX_FREE_VALUE');
+  }
+
+  // Prevent duplicate active booking on same trip
+  const dupQ = query(
+    collection(db, 'bookings'),
+    where('tripId', '==', trip.id),
+    where('passengerId', '==', passenger.uid)
+  );
+  const dupSnap = await getDocs(dupQ);
+  const hasActive = dupSnap.docs.some((d) => ['pending', 'accepted'].includes(d.data().status));
+  if (hasActive) {
+    throw new Error('DUPLICATE_BOOKING');
+  }
+
+  const bookingRef = doc(collection(db, 'bookings'));
+  const returnBookingRef = returnTrip ? doc(collection(db, 'bookings')) : null;
+  const notifRef = doc(collection(db, 'notifications'));
+  const txRef = doc(collection(db, 'points_transactions'));
+  const allCabinSeats: CabinSeatId[] = ['front_passenger', 'rear_right', 'rear_middle', 'rear_left'];
+
+  try {
+    await runTransaction(db, async (tx) => {
+      const tripSnap = await tx.get(doc(db, 'trips', trip.id));
+      if (!tripSnap.exists()) throw new Error('TRIP_NOT_FOUND');
+      const liveTrip = tripSnap.data() as Trip;
+      const currentBookedSeats = (liveTrip.bookedSeats || []) as CabinSeatId[];
+      if (liveTrip.status !== 'scheduled' || liveTrip.availableSeats < effectiveSeatsCount) {
+        throw new Error('INSUFFICIENT_SEATS');
+      }
+      if (chosenSeats.some((seat) => currentBookedSeats.includes(seat))) {
+        throw new Error('SEAT_ALREADY_BOOKED');
+      }
+
+      let returnLiveTrip: Trip | null = null;
+      let returnAssignedSeats: CabinSeatId[] = [];
+      if (returnTrip && returnBookingRef) {
+        const retSnap = await tx.get(doc(db, 'trips', returnTrip.id));
+        if (!retSnap.exists()) throw new Error('TRIP_NOT_FOUND');
+        returnLiveTrip = retSnap.data() as Trip;
+        if (returnLiveTrip.status !== 'scheduled' || returnLiveTrip.availableSeats < effectiveSeatsCount) {
+          throw new Error('INSUFFICIENT_SEATS');
+        }
+        const retBooked = (returnLiveTrip.bookedSeats || []) as CabinSeatId[];
+        const retFree = allCabinSeats.filter((s) => !retBooked.includes(s));
+        returnAssignedSeats = retFree.slice(0, effectiveSeatsCount);
+      }
+
+      let walletData: PointsWallet | null = null;
+      if (redeemFreeTrip) {
+        const wSnap = await tx.get(doc(db, 'points_wallets', passenger.uid));
+        if (!wSnap.exists()) throw new Error('INSUFFICIENT_POINTS');
+        walletData = wSnap.data() as PointsWallet;
+        if (walletData.balance < settings.freeTripCostPoints) {
+          throw new Error('INSUFFICIENT_POINTS');
+        }
+      }
+
+      // All reads complete — execute writes
+      const totalPriceIqd =
+        (redeemFreeTrip ? 0 : liveTrip.pricePerSeatIqd * effectiveSeatsCount) + customDropOffFeeIqd;
+      const pointsRedeemed = redeemFreeTrip ? settings.freeTripCostPoints : 0;
+
+      tx.set(bookingRef, {
+        tripId: trip.id,
+        passengerId: passenger.uid,
+        passengerName: passenger.displayName,
+        passengerPhone: passengerPhone || '',
+        driverId: liveTrip.driverId,
+        driverName: liveTrip.driverName,
+        departureGovId: liveTrip.departureGovId,
+        destinationGovId: liveTrip.destinationGovId,
+        departureDate: liveTrip.departureDate,
+        departureTime: liveTrip.departureTime,
+        seatsCount: effectiveSeatsCount,
+        ...(chosenSeats.length > 0 ? { selectedSeats: chosenSeats } : {}),
+        seatPriceIqd: liveTrip.pricePerSeatIqd,
+        totalPriceIqd,
+        pointsRedeemed,
+        isFreeTrip: redeemFreeTrip,
+        isRoundTrip: Boolean(returnTrip),
+        returnTripId: returnTrip ? returnTrip.id : '',
+        passengerNotes: (notes || '').trim().slice(0, 300),
+        useCustomDropOff: hasCustomDropOff,
+        customDropOffFeeIqd,
+        ...(hasCustomDropOff
+          ? {
+              customDropOffLat,
+              customDropOffLng,
+              customDropOffAddress: (customDropOffAddress || '').trim().slice(0, 240),
+            }
+          : {}),
+        status: 'pending',
+        pointsAwarded: false,
+        referralRewarded: false,
+        reviewSubmitted: false,
+        shareToken: generateShareToken(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      if (chosenSeats.length > 0) {
+        tx.update(doc(db, 'trips', trip.id), {
+          bookedSeats: Array.from(new Set([...currentBookedSeats, ...chosenSeats])),
+          lastBookingId: bookingRef.id,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      if (redeemFreeTrip && walletData) {
+        tx.update(doc(db, 'points_wallets', passenger.uid), {
+          balance: walletData.balance - pointsRedeemed,
+          totalRedeemed: walletData.totalRedeemed + pointsRedeemed,
+          lastBookingId: bookingRef.id,
+          updatedAt: serverTimestamp(),
+        });
+        tx.set(txRef, {
+          userId: passenger.uid,
+          type: 'redeem_trip',
+          amount: -pointsRedeemed,
+          bookingId: bookingRef.id,
+          description: `Free trip redemption (${liveTrip.departureGovId.toUpperCase()} -> ${liveTrip.destinationGovId.toUpperCase()})`,
+          createdBy: passenger.uid,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      if (returnTrip && returnBookingRef && returnLiveTrip) {
+        tx.set(returnBookingRef, {
+          tripId: returnTrip.id,
+          passengerId: passenger.uid,
+          passengerName: passenger.displayName,
+          passengerPhone: passengerPhone || '',
+          driverId: returnLiveTrip.driverId,
+          driverName: returnLiveTrip.driverName,
+          departureGovId: returnLiveTrip.departureGovId,
+          destinationGovId: returnLiveTrip.destinationGovId,
+          departureDate: returnLiveTrip.departureDate,
+          departureTime: returnLiveTrip.departureTime,
+          seatsCount: effectiveSeatsCount,
+          ...(returnAssignedSeats.length > 0 ? { selectedSeats: returnAssignedSeats } : {}),
+          seatPriceIqd: returnLiveTrip.pricePerSeatIqd,
+          totalPriceIqd: returnLiveTrip.pricePerSeatIqd * effectiveSeatsCount,
+          pointsRedeemed: 0,
+          isFreeTrip: false,
+          isRoundTrip: true,
+          returnTripId: trip.id,
+          passengerNotes: (notes || '').trim().slice(0, 300),
+          status: 'pending',
+          pointsAwarded: false,
+          referralRewarded: false,
+          reviewSubmitted: false,
+          shareToken: generateShareToken(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        if (returnAssignedSeats.length > 0) {
+          tx.update(doc(db, 'trips', returnTrip.id), {
+            bookedSeats: Array.from(new Set([...(returnLiveTrip.bookedSeats || []), ...returnAssignedSeats])),
+            lastBookingId: returnBookingRef.id,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+
+      tx.set(notifRef, {
+        userId: liveTrip.driverId,
+        titleAr: 'طلب حجز جديد',
+        titleKu: 'داواکاری حجزێکی نوێ',
+        titleEn: 'New Booking Request',
+        bodyAr: `طلب ${passenger.displayName} حجز ${effectiveSeatsCount} مقعد لرحلة ${liveTrip.departureDate}.`,
+        bodyKu: `${passenger.displayName} داوای ${effectiveSeatsCount} کورسی کرد بۆ گەشتی ${liveTrip.departureDate}.`,
+        bodyEn: `${passenger.displayName} requested ${effectiveSeatsCount} seat(s) for ${liveTrip.departureDate}.`,
+        type: 'booking',
+        relatedId: bookingRef.id,
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+    });
+
+    return bookingRef.id;
+  } catch (err) {
+    if (err instanceof Error && ['INSUFFICIENT_SEATS', 'INSUFFICIENT_POINTS', 'TRIP_NOT_FOUND', 'SEAT_ALREADY_BOOKED'].includes(err.message)) {
+      throw err;
+    }
+    handleFirestoreError(err, OperationType.WRITE, `bookings/${bookingRef.id}`);
+  }
+}
+
+export async function acceptBookingTransaction(
+  bookingId: string,
+  driverPhone: string,
+  settings: PlatformSettings
+): Promise<void> {
+  const notifRef = doc(collection(db, 'notifications'));
+  try {
+    await runTransaction(db, async (tx) => {
+      const bSnap = await tx.get(doc(db, 'bookings', bookingId));
+      if (!bSnap.exists()) throw new Error('BOOKING_NOT_FOUND');
+      const booking = bSnap.data() as Booking;
+      if (booking.status !== 'pending') throw new Error('INVALID_BOOKING_STATE');
+
+      const tSnap = await tx.get(doc(db, 'trips', booking.tripId));
+      if (!tSnap.exists()) throw new Error('TRIP_NOT_FOUND');
+      const trip = tSnap.data() as Trip;
+
+      if (trip.availableSeats < booking.seatsCount) {
+        throw new Error('INSUFFICIENT_SEATS');
+      }
+
+      const commissionIqd = booking.isFreeTrip
+        ? 0
+        : Math.round((booking.totalPriceIqd * settings.commissionRatePercent) / 100);
+      const netDriverIqd = Math.max(0, booking.totalPriceIqd - commissionIqd);
+
+      tx.update(doc(db, 'bookings', bookingId), {
+        status: 'accepted',
+        driverPhone: driverPhone || '',
+        updatedAt: serverTimestamp(),
+      });
+
+      tx.update(doc(db, 'trips', booking.tripId), {
+        availableSeats: trip.availableSeats - booking.seatsCount,
+        confirmedSeatsCount: (trip.confirmedSeatsCount || 0) + booking.seatsCount,
+        lastBookingId: bookingId,
+        updatedAt: serverTimestamp(),
+      });
+
+      tx.set(doc(db, 'payments', bookingId), {
+        bookingId,
+        tripId: booking.tripId,
+        passengerId: booking.passengerId,
+        driverId: booking.driverId,
+        amountIqd: booking.totalPriceIqd,
+        commissionIqd,
+        netDriverIqd,
+        method: booking.isFreeTrip ? 'points' : 'cash',
+        status: booking.isFreeTrip ? 'paid' : 'unpaid',
+        confirmedBy: booking.isFreeTrip ? booking.passengerId : '',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      tx.set(notifRef, {
+        userId: booking.passengerId,
+        titleAr: 'تم تأكيد حجزك',
+        titleKu: 'حجزەکەت پەسەندکرا',
+        titleEn: 'Booking Confirmed',
+        bodyAr: `وافق السائق ${booking.driverName || ''} على حجزك (${booking.seatsCount} مقعد) بتاريخ ${booking.departureDate || ''}.`,
+        bodyKu: `شۆفێر ${booking.driverName || ''} داواکاری حجزەکەتی پەسەند کرد (${booking.seatsCount} کورسی).`,
+        bodyEn: `Driver ${booking.driverName || ''} confirmed your ${booking.seatsCount} seat(s) for ${booking.departureDate || ''}.`,
+        type: 'booking',
+        relatedId: bookingId,
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+    });
+  } catch (err) {
+    if (err instanceof Error && ['INSUFFICIENT_SEATS', 'INVALID_BOOKING_STATE'].includes(err.message)) {
+      throw err;
+    }
+    handleFirestoreError(err, OperationType.UPDATE, `bookings/${bookingId}`);
+  }
+}
+
+export async function rejectBookingTransaction(bookingId: string, reason: string): Promise<void> {
+  const notifRef = doc(collection(db, 'notifications'));
+  const refundTxRef = doc(collection(db, 'points_transactions'));
+  try {
+    await runTransaction(db, async (tx) => {
+      const bSnap = await tx.get(doc(db, 'bookings', bookingId));
+      if (!bSnap.exists()) throw new Error('BOOKING_NOT_FOUND');
+      const booking = bSnap.data() as Booking;
+      if (booking.status !== 'pending') throw new Error('INVALID_BOOKING_STATE');
+
+      const tSnap = await tx.get(doc(db, 'trips', booking.tripId));
+      const trip = tSnap.exists() ? (tSnap.data() as Trip) : null;
+
+      let walletData: PointsWallet | null = null;
+      if (booking.isFreeTrip && booking.pointsRedeemed > 0) {
+        const wSnap = await tx.get(doc(db, 'points_wallets', booking.passengerId));
+        if (wSnap.exists()) walletData = wSnap.data() as PointsWallet;
+      }
+
+      tx.update(doc(db, 'bookings', bookingId), {
+        status: 'rejected',
+        cancellationReason: reason.trim().slice(0, 300),
+        updatedAt: serverTimestamp(),
+      });
+
+      if (trip && booking.selectedSeats && booking.selectedSeats.length > 0) {
+        const nextBooked = (trip.bookedSeats || []).filter((s) => !booking.selectedSeats?.includes(s));
+        tx.update(doc(db, 'trips', booking.tripId), {
+          bookedSeats: nextBooked,
+          lastBookingId: bookingId,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      if (booking.isFreeTrip && booking.pointsRedeemed > 0 && walletData) {
+        tx.update(doc(db, 'points_wallets', booking.passengerId), {
+          balance: walletData.balance + booking.pointsRedeemed,
+          totalRedeemed: Math.max(0, walletData.totalRedeemed - booking.pointsRedeemed),
+          lastBookingId: bookingId,
+          updatedAt: serverTimestamp(),
+        });
+        tx.set(refundTxRef, {
+          userId: booking.passengerId,
+          type: 'refund_points',
+          amount: booking.pointsRedeemed,
+          bookingId,
+          description: 'Refunded points after booking rejection',
+          createdBy: booking.driverId,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      tx.set(notifRef, {
+        userId: booking.passengerId,
+        titleAr: 'تم رفض طلب الحجز',
+        titleKu: 'داواکاری حجز ڕەتکرایەوە',
+        titleEn: 'Booking Request Declined',
+        bodyAr: reason ? `تم رفض الحجز: ${reason}` : 'اعتذر السائق عن قبول طلب الحجز لعدم توفر الإمكانية.',
+        bodyKu: reason ? `داواکارییەکە ڕەتکرایەوە: ${reason}` : 'شۆفێر داواکاری حجزەکەی ڕەتکردەوە.',
+        bodyEn: reason ? `Booking declined: ${reason}` : 'The driver declined the booking request.',
+        type: 'booking',
+        relatedId: bookingId,
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `bookings/${bookingId}`);
+  }
+}
+
+export async function cancelBookingTransaction(
+  bookingId: string,
+  actorUid: string,
+  reason: string,
+  settings: PlatformSettings
+): Promise<void> {
+  const notifRef = doc(collection(db, 'notifications'));
+  const refundTxRef = doc(collection(db, 'points_transactions'));
+  let freedTripId: string | null = null;
+  let freedDriverId: string | null = null;
+
+  try {
+    await runTransaction(db, async (tx) => {
+      const bSnap = await tx.get(doc(db, 'bookings', bookingId));
+      if (!bSnap.exists()) throw new Error('BOOKING_NOT_FOUND');
+      const booking = bSnap.data() as Booking;
+      if (!['pending', 'accepted'].includes(booking.status)) {
+        throw new Error('INVALID_BOOKING_STATE');
+      }
+
+      const isPassenger = actorUid === booking.passengerId;
+      if (isPassenger && booking.status === 'accepted' && booking.departureDate && booking.departureTime) {
+        const depIso = `${booking.departureDate}T${booking.departureTime.slice(0, 5)}:00`;
+        const depMs = Date.parse(depIso);
+        if (!Number.isNaN(depMs)) {
+          const hoursUntil = (depMs - Date.now()) / (1000 * 60 * 60);
+          if (hoursUntil < settings.cancellationHoursLimit) {
+            throw new Error('CANCELLATION_TOO_LATE');
+          }
+        }
+      }
+
+      const tSnap = await tx.get(doc(db, 'trips', booking.tripId));
+      const trip = tSnap.exists() ? (tSnap.data() as Trip) : null;
+
+      let walletData: PointsWallet | null = null;
+      if (booking.isFreeTrip && booking.pointsRedeemed > 0) {
+        const wSnap = await tx.get(doc(db, 'points_wallets', booking.passengerId));
+        if (wSnap.exists()) walletData = wSnap.data() as PointsWallet;
+      }
+
+      tx.update(doc(db, 'bookings', bookingId), {
+        status: 'cancelled',
+        cancellationReason: reason.trim().slice(0, 300),
+        updatedAt: serverTimestamp(),
+      });
+
+      if (trip) {
+        const nextBooked = (trip.bookedSeats || []).filter((s) => !booking.selectedSeats?.includes(s));
+        if (booking.status === 'accepted') {
+          freedTripId = booking.tripId;
+          freedDriverId = booking.driverId;
+          tx.update(doc(db, 'trips', booking.tripId), {
+            availableSeats: Math.min(trip.totalSeats, trip.availableSeats + booking.seatsCount),
+            confirmedSeatsCount: Math.max(0, (trip.confirmedSeatsCount || 0) - booking.seatsCount),
+            bookedSeats: nextBooked,
+            lastBookingId: bookingId,
+            updatedAt: serverTimestamp(),
+          });
+        } else if (booking.status === 'pending' && booking.selectedSeats && booking.selectedSeats.length > 0) {
+          tx.update(doc(db, 'trips', booking.tripId), {
+            bookedSeats: nextBooked,
+            lastBookingId: bookingId,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+
+      if (booking.isFreeTrip && booking.pointsRedeemed > 0 && walletData) {
+        tx.update(doc(db, 'points_wallets', booking.passengerId), {
+          balance: walletData.balance + booking.pointsRedeemed,
+          totalRedeemed: Math.max(0, walletData.totalRedeemed - booking.pointsRedeemed),
+          lastBookingId: bookingId,
+          updatedAt: serverTimestamp(),
+        });
+        tx.set(refundTxRef, {
+          userId: booking.passengerId,
+          type: 'refund_points',
+          amount: booking.pointsRedeemed,
+          bookingId,
+          description: 'Points refunded upon booking cancellation',
+          createdBy: actorUid,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      const targetUserId = isPassenger ? booking.driverId : booking.passengerId;
+      tx.set(notifRef, {
+        userId: targetUserId,
+        titleAr: 'تم إلغاء الحجز',
+        titleKu: 'حجزەکە هەڵوەشێنرایەوە',
+        titleEn: 'Booking Cancelled',
+        bodyAr: `تم إلغاء حجز (${booking.seatsCount} مقعد) بتاريخ ${booking.departureDate || ''}.`,
+        bodyKu: `حجزی (${booking.seatsCount} کورسی) بۆ ${booking.departureDate || ''} هەڵوەشێنرایەوە.`,
+        bodyEn: `Booking for ${booking.seatsCount} seat(s) on ${booking.departureDate || ''} was cancelled.`,
+        type: 'booking',
+        relatedId: bookingId,
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+    });
+
+    // Notify seat alert subscribers if seats reopened
+    if (freedTripId && freedDriverId && actorUid === freedDriverId) {
+      await triggerSeatAlertsForTrip(freedTripId, freedDriverId);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message === 'CANCELLATION_TOO_LATE') {
+      throw err;
+    }
+    handleFirestoreError(err, OperationType.UPDATE, `bookings/${bookingId}`);
+  }
+}
+
+export async function triggerSeatAlertsForTrip(tripId: string, driverId: string): Promise<void> {
+  try {
+    const q = query(
+      collection(db, 'seat_alerts'),
+      where('tripId', '==', tripId),
+      where('driverId', '==', driverId),
+      where('notified', '==', false)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return;
+    const batch = writeBatch(db);
+    snap.docs.forEach((alertDoc) => {
+      const alertData = alertDoc.data();
+      batch.update(alertDoc.ref, { notified: true });
+      batch.set(doc(collection(db, 'notifications')), {
+        userId: alertData.userId,
+        titleAr: 'توفر مقعد في رحلة تتابعها',
+        titleKu: 'کورسی بەتاڵ بوو لە گەشتێکدا',
+        titleEn: 'Seat Available on Watched Trip',
+        bodyAr: 'أصبح هناك مقعد متاح الآن في الرحلة التي طلبت التنبيه عنها. بادر بالحجز!',
+        bodyKu: 'ئێستا کورسی بەردەستە لەو گەشتەی ئاگادارکردنەوەت بۆ دانابوو!',
+        bodyEn: 'A seat just opened up on a trip you are watching. Book now!',
+        type: 'seat_alert',
+        relatedId: tripId,
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  } catch {
+    // Non-blocking alert dispatch
+  }
+}
+
+export async function confirmCashPayment(paymentId: string, driverUid: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'payments', paymentId), {
+      status: 'paid',
+      confirmedBy: driverUid,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `payments/${paymentId}`);
+  }
+}
+
+export async function completeBookingTransaction(
+  bookingId: string,
+  driverUid: string,
+  settings: PlatformSettings
+): Promise<void> {
+  const earnTxRef = doc(db, 'points_transactions', `earn_${bookingId}`);
+  const passengerNotifRef = doc(collection(db, 'notifications'));
+  const refBonusPassengerTxRef = doc(db, 'points_transactions', `ref_referee_${bookingId}`);
+  const refBonusReferrerTxRef = doc(db, 'points_transactions', `ref_referrer_${bookingId}`);
+  const referrerNotifRef = doc(collection(db, 'notifications'));
+
+  try {
+    await runTransaction(db, async (tx) => {
+      const bSnap = await tx.get(doc(db, 'bookings', bookingId));
+      if (!bSnap.exists()) throw new Error('BOOKING_NOT_FOUND');
+      const booking = bSnap.data() as Booking;
+      if (booking.status !== 'accepted') throw new Error('INVALID_BOOKING_STATE');
+      if (booking.pointsAwarded) throw new Error('ALREADY_REWARDED');
+
+      const pSnap = await tx.get(doc(db, 'payments', bookingId));
+      const dSnap = await tx.get(doc(db, 'drivers', driverUid));
+      const pdSnap = await tx.get(doc(db, 'public_drivers', driverUid));
+      const walletSnap = await tx.get(doc(db, 'points_wallets', booking.passengerId));
+      const refSnap = await tx.get(doc(db, 'referrals', booking.passengerId));
+
+      const referral = refSnap.exists() ? (refSnap.data() as Referral) : null;
+      const shouldRewardReferral = Boolean(referral && referral.status === 'pending');
+
+      let referrerWalletSnap = null;
+      if (shouldRewardReferral && referral) {
+        referrerWalletSnap = await tx.get(doc(db, 'points_wallets', referral.referrerId));
+      }
+
+      // All reads done — perform atomic writes
+      tx.update(doc(db, 'bookings', bookingId), {
+        status: 'completed',
+        pointsAwarded: true,
+        referralRewarded: shouldRewardReferral,
+        updatedAt: serverTimestamp(),
+      });
+
+      if (pSnap.exists() && pSnap.data().status === 'unpaid') {
+        tx.update(doc(db, 'payments', bookingId), {
+          status: 'paid',
+          confirmedBy: driverUid,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      if (dSnap.exists()) {
+        tx.update(doc(db, 'drivers', driverUid), {
+          completedTripsCount: (dSnap.data().completedTripsCount || 0) + 1,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      if (pdSnap.exists()) {
+        tx.update(doc(db, 'public_drivers', driverUid), {
+          completedTripsCount: (pdSnap.data().completedTripsCount || 0) + 1,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      const tripPoints = booking.isFreeTrip ? 0 : settings.pointsPerTrip;
+      const refereeBonus = shouldRewardReferral ? (referral?.bonusPointsReferee ?? settings.referralBonusReferee) : 0;
+      const totalPassengerGain = tripPoints + refereeBonus;
+
+      if (walletSnap.exists() && totalPassengerGain > 0) {
+        const w = walletSnap.data() as PointsWallet;
+        tx.update(doc(db, 'points_wallets', booking.passengerId), {
+          balance: w.balance + totalPassengerGain,
+          totalEarned: w.totalEarned + totalPassengerGain,
+          lastBookingId: bookingId,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      if (tripPoints > 0) {
+        tx.set(earnTxRef, {
+          userId: booking.passengerId,
+          type: 'earn_trip',
+          amount: tripPoints,
+          bookingId,
+          description: `Completed intercity trip (${booking.departureGovId || ''} -> ${booking.destinationGovId || ''})`,
+          createdBy: driverUid,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      if (shouldRewardReferral && referral) {
+        tx.update(doc(db, 'referrals', booking.passengerId), {
+          status: 'completed',
+          completedBookingId: bookingId,
+          completedAt: serverTimestamp(),
+        });
+
+        if (refereeBonus > 0) {
+          tx.set(refBonusPassengerTxRef, {
+            userId: booking.passengerId,
+            type: 'referral_bonus',
+            amount: refereeBonus,
+            bookingId,
+            description: 'Welcome referral bonus on first completed trip',
+            createdBy: driverUid,
+            createdAt: serverTimestamp(),
+          });
+        }
+
+        const referrerBonus = referral.bonusPointsReferrer ?? settings.referralBonusReferrer;
+        if (referrerWalletSnap && referrerWalletSnap.exists() && referrerBonus > 0) {
+          const rw = referrerWalletSnap.data() as PointsWallet;
+          tx.update(doc(db, 'points_wallets', referral.referrerId), {
+            balance: rw.balance + referrerBonus,
+            totalEarned: rw.totalEarned + referrerBonus,
+            lastBookingId: bookingId,
+            updatedAt: serverTimestamp(),
+          });
+          tx.set(refBonusReferrerTxRef, {
+            userId: referral.referrerId,
+            type: 'referral_bonus',
+            amount: referrerBonus,
+            bookingId,
+            description: `Referral reward from ${booking.passengerName}`,
+            createdBy: driverUid,
+            createdAt: serverTimestamp(),
+          });
+          tx.set(referrerNotifRef, {
+            userId: referral.referrerId,
+            titleAr: 'مكافأة دعوة صديق',
+            titleKu: 'پاداشتی بانگهێشتی هاوڕێ',
+            titleEn: 'Referral Bonus Credited',
+            bodyAr: `أتمّ ${booking.passengerName} أول رحلة وأُضيفت ${referrerBonus} نقطة لرصيدك.`,
+            bodyKu: `${booking.passengerName} یەکەم گەشتی تەواوکرد و ${referrerBonus} خاڵ خرایە سەر هەژمارەکەت.`,
+            bodyEn: `${booking.passengerName} completed their first trip! You earned ${referrerBonus} points.`,
+            type: 'loyalty',
+            relatedId: bookingId,
+            isRead: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+
+      tx.set(passengerNotifRef, {
+        userId: booking.passengerId,
+        titleAr: 'اكتملت رحلتك بنجاح',
+        titleKu: 'گەشتەکەت بە سەرکەوتوویی تەواوبوو',
+        titleEn: 'Trip Completed',
+        bodyAr:
+          totalPassengerGain > 0
+            ? `تمت إضافة ${totalPassengerGain} نقطة ولاء إلى محفظتك. يمكنك تقييم السائق الآن.`
+            : 'اكتملت رحلتك المجانية بنجاح. يمكنك تقييم السائق الآن.',
+        bodyKu:
+          totalPassengerGain > 0
+            ? `${totalPassengerGain} خاڵی دڵسۆزی خرایە سەر هەژمارەکەت. ئێستا دەتوانیت هەڵسەنگاندن بنووسیت.`
+            : 'گەشتە بێبەرامبەرەکەت تەواوبوو. ئێستا دەتوانیت شۆفێر هەڵبسەنگێنیت.',
+        bodyEn:
+          totalPassengerGain > 0
+            ? `${totalPassengerGain} loyalty points credited to your wallet. You can now rate your trip.`
+            : 'Your reward trip is complete. You can now rate your driver.',
+        type: 'loyalty',
+        relatedId: bookingId,
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `bookings/${bookingId}`);
+  }
+}
+
+export async function requestBookingReschedule(
+  bookingId: string,
+  newDate: string,
+  notes?: string
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'bookings', bookingId), {
+      rescheduleRequestedDate: newDate.trim(),
+      ...(notes ? { passengerNotes: notes.trim().slice(0, 300) } : {}),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `bookings/${bookingId}`);
+  }
+}
+
+export async function disputePayment(paymentId: string, reason: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'payments', paymentId), {
+      status: 'disputed',
+      disputeReason: reason.trim().slice(0, 400),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `payments/${paymentId}`);
+  }
+}
+
+export async function submitReviewTransaction(input: {
+  booking: Booking;
+  driverRating: number;
+  vehicleRating: number;
+  experienceRating: number;
+  comment: string;
+}): Promise<void> {
+  const { booking, driverRating, vehicleRating, experienceRating, comment } = input;
+  try {
+    await runTransaction(db, async (tx) => {
+      const bSnap = await tx.get(doc(db, 'bookings', booking.id));
+      if (!bSnap.exists()) throw new Error('BOOKING_NOT_FOUND');
+      const liveBooking = bSnap.data() as Booking;
+      if (liveBooking.status !== 'completed' || liveBooking.reviewSubmitted) {
+        throw new Error('CANNOT_REVIEW_BOOKING');
+      }
+      const pdSnap = await tx.get(doc(db, 'public_drivers', booking.driverId));
+      const pd = pdSnap.exists() ? (pdSnap.data() as PublicDriverProfile) : null;
+
+      tx.set(doc(db, 'reviews', booking.id), {
+        bookingId: booking.id,
+        tripId: booking.tripId,
+        driverId: booking.driverId,
+        passengerId: booking.passengerId,
+        passengerName: booking.passengerName,
+        driverRating,
+        vehicleRating,
+        experienceRating,
+        comment: comment.trim().slice(0, 600),
+        status: 'published',
+        createdAt: serverTimestamp(),
+      });
+
+      tx.update(doc(db, 'bookings', booking.id), {
+        reviewSubmitted: true,
+        updatedAt: serverTimestamp(),
+      });
+
+      if (pd) {
+        const oldCount = pd.ratingCount || 0;
+        const oldAvg = pd.ratingAvg || 0;
+        const nextCount = oldCount + 1;
+        const nextAvg = Number((((oldAvg * oldCount) + driverRating) / nextCount).toFixed(2));
+        tx.update(doc(db, 'public_drivers', booking.driverId), {
+          ratingAvg: nextAvg,
+          ratingCount: nextCount,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `reviews/${booking.id}`);
+  }
+}
+
+export async function subscribeSeatAlert(tripId: string, driverId: string, userId: string, seats = 1): Promise<void> {
+  const alertId = `${tripId}_${userId}`;
+  try {
+    await setDoc(doc(db, 'seat_alerts', alertId), {
+      tripId,
+      driverId,
+      userId,
+      requestedSeats: seats,
+      notified: false,
+      createdAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `seat_alerts/${alertId}`);
+  }
+}
+
+export async function submitComplaint(input: {
+  userId: string;
+  userName: string;
+  userRole: 'passenger' | 'driver';
+  bookingId?: string;
+  category: Complaint['category'];
+  subject: string;
+  description: string;
+}): Promise<void> {
+  const cRef = doc(collection(db, 'complaints'));
+  try {
+    await setDoc(cRef, {
+      userId: input.userId,
+      userName: input.userName,
+      userRole: input.userRole,
+      bookingId: input.bookingId || '',
+      category: input.category,
+      subject: input.subject.trim().slice(0, 140),
+      description: input.description.trim().slice(0, 1000),
+      status: 'open',
+      adminNotes: '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, `complaints/${cRef.id}`);
+  }
+}
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'notifications', notificationId), { isRead: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `notifications/${notificationId}`);
+  }
+}
+
+export async function markAllNotificationsRead(notificationIds: string[]): Promise<void> {
+  if (notificationIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    notificationIds.forEach((id) => {
+      batch.update(doc(db, 'notifications', id), { isRead: true });
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, 'notifications');
+  }
+}
+
+// --- ADMIN OPERATIONS ---
+
+export async function adminSetDriverVerification(
+  driverId: string,
+  status: VerificationStatus,
+  reason = ''
+): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'drivers', driverId), {
+      verificationStatus: status,
+      rejectionReason: reason.trim().slice(0, 400),
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(db, 'public_drivers', driverId), {
+      verificationStatus: status,
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(db, 'users', driverId), {
+      verificationStatus: status,
+      updatedAt: serverTimestamp(),
+    });
+    if (status === 'approved') {
+      const vSnap = await getDocs(query(collection(db, 'vehicles'), where('driverId', '==', driverId)));
+      vSnap.docs.forEach((vDoc) => {
+        batch.update(vDoc.ref, { verified: true, updatedAt: serverTimestamp() });
+      });
+    }
+    batch.set(doc(collection(db, 'notifications')), {
+      userId: driverId,
+      titleAr: status === 'approved' ? 'تمت الموافقة على حساب السائق' : 'تحديث حالة توثيق السائق',
+      titleKu: status === 'approved' ? 'هەژماری شۆفێر پەسەندکرا' : 'نوێکردنەوەی باری شۆفێر',
+      titleEn: status === 'approved' ? 'Driver Account Approved' : 'Driver Verification Update',
+      bodyAr:
+        status === 'approved'
+          ? 'يمكنك الآن نشر رحلاتك بين المحافظات واستقبال طلبات الحجز.'
+          : `حالة الحساب الحالية: ${status}. ${reason}`,
+      bodyKu:
+        status === 'approved'
+          ? 'ئێستا دەتوانیت گەشت بڵاوبکەیتەوە و داواکاری وەربگریت.'
+          : `بارودۆخی هەژمار: ${status}. ${reason}`,
+      bodyEn:
+        status === 'approved'
+          ? 'You can now publish intercity trips and accept seat bookings.'
+          : `Verification status updated to ${status}. ${reason}`,
+      type: 'driver_status',
+      relatedId: driverId,
+      isRead: false,
+      createdAt: serverTimestamp(),
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `drivers/${driverId}`);
+  }
+}
+
+export async function adminSetUserVerification(
+  uid: string,
+  status: VerificationStatus
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'users', uid), {
+      verificationStatus: status,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+  }
+}
+
+export async function adminUpdateUserStatus(uid: string, accountStatus: AccountStatus): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'users', uid), {
+      accountStatus,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+  }
+}
+
+export async function adminSaveGarage(garage: Omit<Garage, 'id'> & { id?: string }): Promise<void> {
+  const ref = garage.id ? doc(db, 'garages', garage.id) : doc(collection(db, 'garages'));
+  try {
+    await setDoc(ref, {
+      governorateId: garage.governorateId,
+      cityId: garage.cityId || '',
+      nameAr: garage.nameAr.trim(),
+      nameKu: garage.nameKu.trim(),
+      nameEn: garage.nameEn.trim(),
+      addressAr: (garage.addressAr || '').trim(),
+      addressKu: (garage.addressKu || '').trim(),
+      addressEn: (garage.addressEn || '').trim(),
+      lat: Number(garage.lat),
+      lng: Number(garage.lng),
+      operatingHours: (garage.operatingHours || '05:00 - 22:00').trim(),
+      isActive: garage.isActive,
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `garages/${ref.id}`);
+  }
+}
+
+export async function adminDeleteGarage(garageId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'garages', garageId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `garages/${garageId}`);
+  }
+}
+
+export async function adminSaveGovernorate(gov: Governorate): Promise<void> {
+  try {
+    await setDoc(doc(db, 'governorates', gov.id), {
+      code: gov.code,
+      nameAr: gov.nameAr,
+      nameKu: gov.nameKu,
+      nameEn: gov.nameEn,
+      lat: Number(gov.lat),
+      lng: Number(gov.lng),
+      isActive: gov.isActive,
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `governorates/${gov.id}`);
+  }
+}
+
+export async function adminSaveCity(city: City): Promise<void> {
+  try {
+    await setDoc(doc(db, 'cities', city.id), {
+      governorateId: city.governorateId,
+      nameAr: city.nameAr,
+      nameKu: city.nameKu,
+      nameEn: city.nameEn,
+      isActive: city.isActive,
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `cities/${city.id}`);
+  }
+}
+
+export async function adminSavePlatformSettings(settings: PlatformSettings): Promise<void> {
+  try {
+    await setDoc(doc(db, 'platform_settings', 'global'), {
+      pointsPerTrip: Number(settings.pointsPerTrip),
+      freeTripCostPoints: Number(settings.freeTripCostPoints),
+      maxFreeTripValueIqd: Number(settings.maxFreeTripValueIqd),
+      referralBonusReferrer: Number(settings.referralBonusReferrer),
+      referralBonusReferee: Number(settings.referralBonusReferee),
+      commissionRatePercent: Number(settings.commissionRatePercent),
+      cancellationHoursLimit: Number(settings.cancellationHoursLimit),
+      supportPhone: (settings.supportPhone || '').trim(),
+      supportEmail: (settings.supportEmail || '').trim(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'platform_settings/global');
+  }
+}
+
+export async function adminAdjustWalletPoints(
+  userId: string,
+  delta: number,
+  description: string,
+  adminUid: string
+): Promise<void> {
+  const txRef = doc(collection(db, 'points_transactions'));
+  try {
+    await runTransaction(db, async (tx) => {
+      const wRef = doc(db, 'points_wallets', userId);
+      const wSnap = await tx.get(wRef);
+      if (!wSnap.exists()) throw new Error('WALLET_NOT_FOUND');
+      const w = wSnap.data() as PointsWallet;
+      const nextBalance = Math.max(0, w.balance + delta);
+      tx.update(wRef, {
+        balance: nextBalance,
+        totalEarned: delta > 0 ? w.totalEarned + delta : w.totalEarned,
+        totalRedeemed: delta < 0 ? w.totalRedeemed + Math.abs(delta) : w.totalRedeemed,
+        updatedAt: serverTimestamp(),
+      });
+      tx.set(txRef, {
+        userId,
+        type: 'admin_adjust',
+        amount: delta,
+        description: description.trim().slice(0, 240),
+        createdBy: adminUid,
+        createdAt: serverTimestamp(),
+      });
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `points_wallets/${userId}`);
+  }
+}
+
+export async function adminResolvePayment(paymentId: string, status: PaymentStatus, adminUid: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'payments', paymentId), {
+      status,
+      confirmedBy: adminUid,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `payments/${paymentId}`);
+  }
+}
+
+export async function adminUpdateComplaint(
+  complaintId: string,
+  status: Complaint['status'],
+  adminNotes: string
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'complaints', complaintId), {
+      status,
+      adminNotes: adminNotes.trim().slice(0, 500),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `complaints/${complaintId}`);
+  }
+}
+
+export async function adminSetReviewStatus(reviewId: string, status: 'published' | 'hidden'): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'reviews', reviewId), { status });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `reviews/${reviewId}`);
+  }
+}
+
+export async function adminSendNotification(
+  userId: string,
+  title: string,
+  body: string
+): Promise<void> {
+  const ref = doc(collection(db, 'notifications'));
+  try {
+    await setDoc(ref, {
+      userId: userId.trim(),
+      titleAr: title.trim().slice(0, 140),
+      titleKu: title.trim().slice(0, 140),
+      titleEn: title.trim().slice(0, 140),
+      bodyAr: body.trim().slice(0, 360),
+      bodyKu: body.trim().slice(0, 360),
+      bodyEn: body.trim().slice(0, 360),
+      type: 'system',
+      isRead: false,
+      createdAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, `notifications/${ref.id}`);
+  }
+}

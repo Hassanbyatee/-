@@ -1,0 +1,463 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Award, Banknote, MapPin, Repeat, RotateCcw, X } from 'lucide-react';
+import { useI18n } from '../i18n/I18nContext';
+import { useAuth } from '../context/AuthContext';
+import { createBookingTransaction, CUSTOM_DROPOFF_FEE_IQD } from '../services/platformService';
+import { AnimatedModalShell } from './motion/KineticPrimitives';
+import { CarCabinSeatSelector } from './CarCabinSeatSelector';
+import { DropOffMapPicker } from './DropOffMapPicker';
+import type { CabinSeatId, Trip } from '../types/domain';
+
+interface BookingModalProps {
+  trip: Trip | null;
+  onClose: () => void;
+  onSuccess: (isDemo?: boolean, dropOffCoords?: { lat: number; lng: number } | null) => void;
+}
+
+const ALL_CABIN_SEATS: CabinSeatId[] = ['front_passenger', 'rear_right', 'rear_middle', 'rear_left'];
+const LEGACY_FILL_ORDER: CabinSeatId[] = ['rear_left', 'rear_right', 'rear_middle', 'front_passenger'];
+
+export const BookingModal: React.FC<BookingModalProps> = ({ trip: initialTrip, onClose, onSuccess }) => {
+  const { getLocalizedName, formatIqd, t } = useI18n();
+  const { userProfile, privateInfo, wallet, settings, governorates, trips, bookDemoTrip, resetDemoTrip } = useAuth();
+
+  const trip = useMemo(
+    () => (initialTrip ? trips.find((tr) => tr.id === initialTrip.id) || initialTrip : null),
+    [initialTrip, trips]
+  );
+
+  const [selectedSeats, setSelectedSeats] = useState<CabinSeatId[]>([]);
+  const [useCustomDropOff, setUseCustomDropOff] = useState(false);
+  const [dropOffCoords, setDropOffCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [dropOffAddress, setDropOffAddress] = useState('');
+  const [redeemFreeTrip, setRedeemFreeTrip] = useState(false);
+  const [roundTripEnabled, setRoundTripEnabled] = useState(false);
+  const [returnTripId, setReturnTripId] = useState('');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const effectiveBookedSeats = useMemo<CabinSeatId[]>(() => {
+    if (!trip) return [];
+    const booked = new Set<CabinSeatId>(trip.bookedSeats || []);
+    const occupiedCount = Math.max(0, Math.min(4, trip.totalSeats) - trip.availableSeats);
+    for (const seat of LEGACY_FILL_ORDER) {
+      if (booked.size >= occupiedCount) break;
+      booked.add(seat);
+    }
+    return Array.from(booked);
+  }, [trip]);
+
+  const maxSelectable = trip ? Math.max(0, Math.min(4, trip.availableSeats)) : 0;
+
+  useEffect(() => {
+    if (!trip) {
+      setSelectedSeats([]);
+      setUseCustomDropOff(false);
+      setDropOffCoords(null);
+      setDropOffAddress('');
+      setRedeemFreeTrip(false);
+      setRoundTripEnabled(false);
+      setReturnTripId('');
+      setNotes('');
+      setErrorMsg('');
+      return;
+    }
+    const bookedSet = new Set<CabinSeatId>(trip.bookedSeats || []);
+    const occupiedCount = Math.max(0, Math.min(4, trip.totalSeats) - trip.availableSeats);
+    for (const seat of LEGACY_FILL_ORDER) {
+      if (bookedSet.size >= occupiedCount) break;
+      bookedSet.add(seat);
+    }
+    const firstAvailable = ALL_CABIN_SEATS.find((s) => !bookedSet.has(s));
+    setSelectedSeats(firstAvailable && trip.availableSeats > 0 ? [firstAvailable] : []);
+    setUseCustomDropOff(false);
+    setDropOffCoords(null);
+    setDropOffAddress('');
+    setRedeemFreeTrip(false);
+    setRoundTripEnabled(false);
+    setReturnTripId('');
+    setNotes('');
+    setErrorMsg('');
+  }, [trip?.id, trip?.availableSeats, trip?.totalSeats, trip?.bookedSeats]);
+
+  const seatsCount = selectedSeats.length;
+
+  const handleToggleSeat = (seatId: CabinSeatId) => {
+    if (effectiveBookedSeats.includes(seatId)) return;
+    setErrorMsg('');
+    setSelectedSeats((prev) => {
+      let next: CabinSeatId[];
+      if (prev.includes(seatId)) {
+        next = prev.filter((id) => id !== seatId);
+      } else if (maxSelectable <= 1) {
+        next = [seatId];
+      } else if (prev.length < maxSelectable) {
+        next = [...prev, seatId];
+      } else {
+        next = prev;
+      }
+      if (next.length !== 1) {
+        setRedeemFreeTrip(false);
+      }
+      return next;
+    });
+  };
+
+  const returnOptions = useMemo(() => {
+    if (!trip) return [];
+    const needed = Math.max(1, seatsCount);
+    return trips.filter(
+      (cand) =>
+        cand.id !== trip.id &&
+        cand.status === 'scheduled' &&
+        cand.departureGovId === trip.destinationGovId &&
+        cand.destinationGovId === trip.departureGovId &&
+        cand.departureDate >= trip.departureDate &&
+        cand.availableSeats >= needed &&
+        cand.driverId !== userProfile?.uid
+    );
+  }, [trip, trips, seatsCount, userProfile?.uid]);
+
+  const isOpen = Boolean(trip && (userProfile || trip.isSampleDemo));
+
+  const depGov = trip ? governorates.find((g) => g.id === trip.departureGovId) : undefined;
+  const dstGov = trip ? governorates.find((g) => g.id === trip.destinationGovId) : undefined;
+  const selectedReturnTrip = roundTripEnabled
+    ? returnOptions.find((r) => r.id === returnTripId) || null
+    : null;
+
+  const hasEnoughPoints = (wallet?.balance || 0) >= settings.freeTripCostPoints;
+  const withinFreeCap = trip ? trip.pricePerSeatIqd <= settings.maxFreeTripValueIqd : false;
+  const canRedeemPoints = hasEnoughPoints && withinFreeCap && seatsCount === 1;
+
+  const outboundCash = trip ? (redeemFreeTrip ? 0 : trip.pricePerSeatIqd * seatsCount) : 0;
+  const customDropOffFeeIqd = useCustomDropOff ? CUSTOM_DROPOFF_FEE_IQD : 0;
+  const returnCash = selectedReturnTrip ? selectedReturnTrip.pricePerSeatIqd * seatsCount : 0;
+  const totalCashDue = outboundCash + customDropOffFeeIqd + returnCash;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!trip) return;
+    if (selectedSeats.length === 0) {
+      setErrorMsg(t.booking.selectAtLeastOneSeat);
+      return;
+    }
+    if (useCustomDropOff && !dropOffCoords) {
+      setErrorMsg(t.booking.customDropOffMissingCoords);
+      return;
+    }
+    setErrorMsg('');
+    setSubmitting(true);
+    try {
+      if (trip.isSampleDemo) {
+        bookDemoTrip(selectedSeats);
+        onSuccess(true, useCustomDropOff ? dropOffCoords : null);
+        onClose();
+        return;
+      }
+      if (!userProfile) return;
+      await createBookingTransaction({
+        trip,
+        passenger: userProfile,
+        passengerPhone: privateInfo?.phone || '',
+        seatsCount: selectedSeats.length,
+        selectedSeats,
+        notes,
+        useCustomDropOff,
+        customDropOffLat: dropOffCoords?.lat,
+        customDropOffLng: dropOffCoords?.lng,
+        customDropOffAddress: dropOffAddress,
+        redeemFreeTrip,
+        settings,
+        returnTrip: selectedReturnTrip,
+      });
+      onSuccess(false);
+      onClose();
+    } catch (err) {
+      const code = err instanceof Error ? err.message : '';
+      if (code === 'INSUFFICIENT_SEATS') setErrorMsg(t.errors.insufficientSeats);
+      else if (code === 'SEAT_ALREADY_BOOKED') setErrorMsg(t.booking.seatAlreadyBooked);
+      else if (code === 'DUPLICATE_BOOKING') setErrorMsg(t.errors.duplicateBooking);
+      else if (code === 'INSUFFICIENT_POINTS') setErrorMsg(t.booking.insufficientPoints);
+      else if (code === 'EXCEEDS_MAX_FREE_VALUE') setErrorMsg(t.booking.exceedsMaxFreeValue);
+      else setErrorMsg(t.errors.generic);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <AnimatedModalShell isOpen={isOpen} onClose={onClose} maxWidthClass="max-w-xl">
+      {trip && (userProfile || trip.isSampleDemo) && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-5 relative shadow-[var(--shadow-elevated)] max-h-[90vh] overflow-y-auto">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t.common.close}
+            className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 absolute top-4 end-4 cursor-pointer transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="border-b border-slate-100 pb-4 pe-8">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-bold text-[#05203C]">{t.booking.modalTitle}</h2>
+              {trip.isSampleDemo && (
+                <span className="px-2 py-0.5 rounded-md bg-[#05203C] text-white text-[11px] font-bold">
+                  {t.tripCard.demoBadge}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-slate-600 mt-1">
+              {getLocalizedName(depGov)} → {getLocalizedName(dstGov)} ·{' '}
+              <span className="font-mono tabular-nums">
+                {trip.departureDate} · {trip.departureTime}
+              </span>
+            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 mt-1">
+              <p className="text-xs text-[#0770E3] font-semibold">
+                {trip.vehicleModel} · {trip.availableSeats} {t.tripCard.seatsAvailable} ·{' '}
+                <span className="font-mono tabular-nums">{formatIqd(trip.pricePerSeatIqd)}</span> / {t.tripCard.perSeat}
+              </p>
+              {trip.isSampleDemo && (trip.bookedSeats?.length || 0) > 1 && (
+                <button
+                  type="button"
+                  onClick={resetDemoTrip}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#05203C] hover:text-[#0770E3] cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>{t.tripCard.resetDemo}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Interactive Top-Down 3D Car Seat Selector */}
+            <CarCabinSeatSelector
+              bookedSeats={effectiveBookedSeats}
+              selectedSeats={selectedSeats}
+              maxSelectable={maxSelectable}
+              onToggleSeat={handleToggleSeat}
+            />
+
+            {/* Arrival Drop-Off Option & Interactive Map Picker (+10,000 IQD) */}
+            <div className="space-y-2.5 pt-2 border-t border-slate-100">
+              <label className="block text-xs font-semibold text-slate-700">
+                {t.booking.dropOffTitle}
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setUseCustomDropOff(false)}
+                  className={`p-3 rounded-xl border text-start flex items-start gap-2.5 cursor-pointer transition-colors ${
+                    !useCustomDropOff
+                      ? 'border-[#0770E3] bg-[#EFF6FF]/60'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <MapPin className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs sm:text-sm font-semibold text-slate-900">
+                      {t.booking.standardDropOffLabel}
+                    </div>
+                    <div className="text-[11px] text-slate-600 mt-0.5">
+                      {t.booking.standardDropOffDesc}
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setUseCustomDropOff(true)}
+                  className={`p-3 rounded-xl border text-start flex items-start gap-2.5 cursor-pointer transition-colors ${
+                    useCustomDropOff
+                      ? 'border-[#0770E3] bg-[#EFF6FF]/60'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <MapPin className="w-5 h-5 text-[#0770E3] shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs sm:text-sm font-semibold text-slate-900">
+                      {t.booking.customDropOffLabel}
+                    </div>
+                    <div className="text-[11px] text-slate-600 mt-0.5">
+                      {t.booking.customDropOffDesc}
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {useCustomDropOff && (
+                <DropOffMapPicker
+                  value={dropOffCoords}
+                  fallbackLat={dstGov?.lat ?? 33.3152}
+                  fallbackLng={dstGov?.lng ?? 44.3661}
+                  address={dropOffAddress}
+                  onChange={setDropOffCoords}
+                  onAddressChange={setDropOffAddress}
+                />
+              )}
+            </div>
+
+            {/* Payment Method: Cash vs Points Redemption */}
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-slate-700">
+                {t.booking.paymentMethodTitle}
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setRedeemFreeTrip(false)}
+                  className={`p-3 rounded-xl border text-start flex items-start gap-2.5 cursor-pointer transition-colors ${
+                    !redeemFreeTrip ? 'border-[#0770E3] bg-[#EFF6FF]/60' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <Banknote className="w-5 h-5 text-[#0770E3] shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs sm:text-sm font-semibold text-slate-900">{t.booking.payCashLabel}</div>
+                    <div className="text-[11px] text-slate-600 mt-0.5">{t.booking.payCashDesc}</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canRedeemPoints}
+                  onClick={() => canRedeemPoints && setRedeemFreeTrip(true)}
+                  className={`p-3 rounded-xl border text-start flex items-start gap-2.5 disabled:opacity-50 transition-colors ${
+                    redeemFreeTrip ? 'border-[#0770E3] bg-[#EFF6FF]/60' : 'border-slate-200'
+                  } ${canRedeemPoints ? 'cursor-pointer hover:border-slate-300' : 'cursor-not-allowed'}`}
+                >
+                  <Award className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="text-xs sm:text-sm font-semibold text-slate-900">
+                      {t.booking.redeemPointsLabel} ({settings.freeTripCostPoints.toLocaleString()}{' '}
+                      {t.pointsUnit})
+                    </div>
+                    <div className="text-[11px] text-slate-600">
+                      {!hasEnoughPoints
+                        ? t.booking.insufficientPoints
+                        : !withinFreeCap
+                        ? `${t.booking.exceedsMaxFreeValue} (${formatIqd(settings.maxFreeTripValueIqd)})`
+                        : seatsCount !== 1
+                        ? t.booking.onlyOneSeatForFree
+                        : t.booking.redeemPointsDesc}
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Optional Round Trip Selector */}
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={roundTripEnabled}
+                  onChange={(e) => setRoundTripEnabled(e.target.checked)}
+                  className="rounded border-slate-300 text-[#0770E3]"
+                />
+                <Repeat className="w-4 h-4 text-[#0770E3]" />
+                <span>{t.booking.roundTripLabel}</span>
+              </label>
+
+              {roundTripEnabled && (
+                <div>
+                  {returnOptions.length === 0 ? (
+                    <p className="text-xs text-slate-500">{t.booking.noReturnTrips}</p>
+                  ) : (
+                    <select
+                      value={returnTripId}
+                      onChange={(e) => setReturnTripId(e.target.value)}
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl bg-white"
+                    >
+                      <option value="">{t.booking.selectReturnTrip}</option>
+                      {returnOptions.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.departureDate} · {r.departureTime} · {r.driverName} ·{' '}
+                          {formatIqd(r.pricePerSeatIqd)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                {t.booking.notesLabel}
+              </label>
+              <textarea
+                rows={2}
+                maxLength={300}
+                placeholder={t.booking.notesPlaceholder}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:outline-none focus:border-[#0770E3]"
+              />
+            </div>
+
+            {/* Summary Box */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-sm">
+              <div className="flex items-center justify-between text-xs text-slate-600">
+                <span>{t.booking.seatsCount}</span>
+                <span className="font-bold font-mono tabular-nums text-slate-900">{seatsCount}</span>
+              </div>
+              {useCustomDropOff && (
+                <div className="flex items-center justify-between text-xs text-[#0770E3]">
+                  <span className="font-semibold">{t.booking.customDropOffFeeLabel}</span>
+                  <span className="font-bold font-mono tabular-nums">
+                    +{formatIqd(CUSTOM_DROPOFF_FEE_IQD)}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">{t.booking.totalDueCash}</span>
+                <span className="text-base font-extrabold text-[#05203C] font-mono tabular-nums">
+                  {formatIqd(totalCashDue)}
+                </span>
+              </div>
+              {redeemFreeTrip && (
+                <div className="flex items-center justify-between text-amber-700">
+                  <span>{t.booking.pointsToDeduct}</span>
+                  <span className="font-bold font-mono tabular-nums">
+                    -{settings.freeTripCostPoints.toLocaleString()} {t.pointsUnit}
+                  </span>
+                </div>
+              )}
+              <p className="text-xs text-slate-500 pt-1.5 border-t border-slate-200">
+                {t.booking.policyNotice}
+              </p>
+            </div>
+
+            {errorMsg && (
+              <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3.5 py-2.5">
+                {errorMsg}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer"
+              >
+                {t.booking.cancel}
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || selectedSeats.length === 0}
+                className="px-5 py-2.5 text-sm font-semibold text-white bg-[#0770E3] rounded-lg hover:bg-[#0559B8] disabled:opacity-60 cursor-pointer transition-colors"
+              >
+                {submitting ? t.auth.submitting : t.booking.confirmRequest}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </AnimatedModalShell>
+  );
+};

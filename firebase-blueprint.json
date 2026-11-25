@@ -1,0 +1,503 @@
+{
+  "entities": {
+    "Admin": {
+      "title": "Admin",
+      "description": "Trusted administrator marker document.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 160 },
+        "grantedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "grantedAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Public/operational user profile without sensitive PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "role": { "type": "string", "enum": ["passenger", "driver", "admin"] },
+        "accountStatus": { "type": "string", "enum": ["active", "suspended", "blocked"] },
+        "preferredLanguage": { "type": "string", "enum": ["ar", "ku", "en"] },
+        "referralCode": { "type": "string", "minLength": 4, "maxLength": 24, "pattern": "^[A-Z0-9_\\-]+$" },
+        "referredBy": { "type": "string", "maxLength": 128 },
+        "governorateId": { "type": "string", "maxLength": 64 },
+        "verificationStatus": { "type": "string", "enum": ["pending", "approved", "rejected", "suspended"] },
+        "photoUrl": { "type": "string", "maxLength": 2000 },
+        "idDocumentUrl": { "type": "string", "maxLength": 2000 },
+        "portraitUrl": { "type": "string", "maxLength": 2000 },
+        "licenseDocumentUrl": { "type": "string", "maxLength": 2000 },
+        "vehicleModel": { "type": "string", "maxLength": 100 },
+        "plateNumber": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role", "accountStatus", "preferredLanguage", "referralCode", "createdAt", "updatedAt"]
+    },
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "Isolated PII document for user email, phone, and national ID.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 160 },
+        "phone": { "type": "string", "minLength": 7, "maxLength": 24 },
+        "emergencyContact": { "type": "string", "maxLength": 100 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "phone", "updatedAt"]
+    },
+    "Driver": {
+      "title": "Driver",
+      "description": "Intercity taxi driver profile, verification state, and rating aggregates.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "phone": { "type": "string", "minLength": 7, "maxLength": 24 },
+        "governorateId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "homeGarageId": { "type": "string", "maxLength": 64 },
+        "licenseNumber": { "type": "string", "minLength": 3, "maxLength": 64 },
+        "nationalIdNumber": { "type": "string", "minLength": 4, "maxLength": 64 },
+        "idDocumentUrl": { "type": "string", "maxLength": 220000 },
+        "licenseDocumentUrl": { "type": "string", "maxLength": 220000 },
+        "operatingGovIds": { "type": "array" },
+        "verificationStatus": { "type": "string", "enum": ["pending", "approved", "rejected", "suspended"] },
+        "rejectionReason": { "type": "string", "maxLength": 400 },
+        "isAvailable": { "type": "boolean" },
+        "ratingAvg": { "type": "number" },
+        "ratingCount": { "type": "number" },
+        "completedTripsCount": { "type": "number" },
+        "bio": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "fullName", "phone", "governorateId", "licenseNumber", "nationalIdNumber", "verificationStatus", "isAvailable", "ratingAvg", "ratingCount", "completedTripsCount", "createdAt", "updatedAt"]
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Registered intercity taxi vehicle belonging to a driver.",
+      "type": "object",
+      "properties": {
+        "driverId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "makeModel": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "year": { "type": "number" },
+        "plateNumber": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "color": { "type": "string", "maxLength": 40 },
+        "passengerCapacity": { "type": "number" },
+        "hasAc": { "type": "boolean" },
+        "hasWifi": { "type": "boolean" },
+        "photoUrl": { "type": "string", "maxLength": 220000 },
+        "verified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["driverId", "makeModel", "year", "plateNumber", "passengerCapacity", "verified", "createdAt", "updatedAt"]
+    },
+    "Governorate": {
+      "title": "Governorate",
+      "description": "Iraqi governorate reference data.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 16 },
+        "nameAr": { "type": "string", "maxLength": 80 },
+        "nameKu": { "type": "string", "maxLength": 80 },
+        "nameEn": { "type": "string", "maxLength": 80 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["code", "nameAr", "nameKu", "nameEn", "lat", "lng", "isActive"]
+    },
+    "City": {
+      "title": "City",
+      "description": "City or district inside an Iraqi governorate.",
+      "type": "object",
+      "properties": {
+        "governorateId": { "type": "string", "maxLength": 64 },
+        "nameAr": { "type": "string", "maxLength": 80 },
+        "nameKu": { "type": "string", "maxLength": 80 },
+        "nameEn": { "type": "string", "maxLength": 80 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["governorateId", "nameAr", "nameKu", "nameEn", "isActive"]
+    },
+    "Garage": {
+      "title": "Garage",
+      "description": "Official Iraqi taxi departure station / garage.",
+      "type": "object",
+      "properties": {
+        "governorateId": { "type": "string", "maxLength": 64 },
+        "cityId": { "type": "string", "maxLength": 64 },
+        "nameAr": { "type": "string", "maxLength": 120 },
+        "nameKu": { "type": "string", "maxLength": 120 },
+        "nameEn": { "type": "string", "maxLength": 120 },
+        "addressAr": { "type": "string", "maxLength": 200 },
+        "addressKu": { "type": "string", "maxLength": 200 },
+        "addressEn": { "type": "string", "maxLength": 200 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "operatingHours": { "type": "string", "maxLength": 60 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["governorateId", "nameAr", "nameKu", "nameEn", "lat", "lng", "isActive"]
+    },
+    "Trip": {
+      "title": "Trip",
+      "description": "Published intercity taxi trip with seat inventory.",
+      "type": "object",
+      "properties": {
+        "driverId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "driverName": { "type": "string", "maxLength": 100 },
+        "driverRating": { "type": "number" },
+        "driverCompletedTrips": { "type": "number" },
+        "driverVerified": { "type": "boolean" },
+        "vehicleId": { "type": "string", "maxLength": 128 },
+        "vehicleModel": { "type": "string", "maxLength": 100 },
+        "vehiclePlate": { "type": "string", "maxLength": 40 },
+        "vehiclePhotoUrl": { "type": "string", "maxLength": 220000 },
+        "departureGovId": { "type": "string", "maxLength": 64 },
+        "destinationGovId": { "type": "string", "maxLength": 64 },
+        "departureGarageId": { "type": "string", "maxLength": 64 },
+        "destinationGarageId": { "type": "string", "maxLength": 64 },
+        "departureDate": { "type": "string", "maxLength": 20 },
+        "departureTime": { "type": "string", "maxLength": 20 },
+        "estimatedDurationMin": { "type": "number" },
+        "pricePerSeatIqd": { "type": "number" },
+        "originalPriceIqd": { "type": "number" },
+        "isSpecialOffer": { "type": "boolean" },
+        "totalSeats": { "type": "number" },
+        "availableSeats": { "type": "number" },
+        "confirmedSeatsCount": { "type": "number" },
+        "bookedSeats": { "type": "array" },
+        "status": { "type": "string", "enum": ["scheduled", "in_progress", "completed", "cancelled"] },
+        "notes": { "type": "string", "maxLength": 400 },
+        "liveTrackingEnabled": { "type": "boolean" },
+        "liveLat": { "type": "number" },
+        "liveLng": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["driverId", "driverName", "vehicleId", "vehicleModel", "departureGovId", "destinationGovId", "departureGarageId", "destinationGarageId", "departureDate", "departureTime", "pricePerSeatIqd", "totalSeats", "availableSeats", "confirmedSeatsCount", "status", "createdAt", "updatedAt"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Seat reservation request and lifecycle record.",
+      "type": "object",
+      "properties": {
+        "tripId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "passengerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "passengerName": { "type": "string", "maxLength": 100 },
+        "passengerPhone": { "type": "string", "maxLength": 24 },
+        "driverId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "driverName": { "type": "string", "maxLength": 100 },
+        "driverPhone": { "type": "string", "maxLength": 24 },
+        "departureGovId": { "type": "string", "maxLength": 64 },
+        "destinationGovId": { "type": "string", "maxLength": 64 },
+        "departureDate": { "type": "string", "maxLength": 20 },
+        "departureTime": { "type": "string", "maxLength": 20 },
+        "seatsCount": { "type": "number" },
+        "selectedSeats": { "type": "array" },
+        "seatPriceIqd": { "type": "number" },
+        "totalPriceIqd": { "type": "number" },
+        "pointsRedeemed": { "type": "number" },
+        "isFreeTrip": { "type": "boolean" },
+        "isRoundTrip": { "type": "boolean" },
+        "returnTripId": { "type": "string", "maxLength": 128 },
+        "passengerNotes": { "type": "string", "maxLength": 300 },
+        "useCustomDropOff": { "type": "boolean" },
+        "customDropOffFeeIqd": { "type": "number" },
+        "customDropOffLat": { "type": "number" },
+        "customDropOffLng": { "type": "number" },
+        "customDropOffAddress": { "type": "string", "maxLength": 240 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected", "cancelled", "completed"] },
+        "cancellationReason": { "type": "string", "maxLength": 300 },
+        "rescheduleRequestedDate": { "type": "string", "maxLength": 20 },
+        "pointsAwarded": { "type": "boolean" },
+        "referralRewarded": { "type": "boolean" },
+        "reviewSubmitted": { "type": "boolean" },
+        "shareToken": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tripId", "passengerId", "passengerName", "driverId", "seatsCount", "seatPriceIqd", "totalPriceIqd", "pointsRedeemed", "isFreeTrip", "status", "pointsAwarded", "reviewSubmitted", "createdAt", "updatedAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Cash payment ledger record per accepted booking.",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "tripId": { "type": "string", "maxLength": 128 },
+        "passengerId": { "type": "string", "maxLength": 128 },
+        "driverId": { "type": "string", "maxLength": 128 },
+        "amountIqd": { "type": "number" },
+        "commissionIqd": { "type": "number" },
+        "netDriverIqd": { "type": "number" },
+        "method": { "type": "string", "enum": ["cash", "points"] },
+        "status": { "type": "string", "enum": ["unpaid", "paid", "disputed", "refunded"] },
+        "disputeReason": { "type": "string", "maxLength": 400 },
+        "confirmedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["bookingId", "tripId", "passengerId", "driverId", "amountIqd", "commissionIqd", "netDriverIqd", "method", "status", "createdAt", "updatedAt"]
+    },
+    "PointsWallet": {
+      "title": "PointsWallet",
+      "description": "Passenger loyalty points wallet.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "balance": { "type": "number" },
+        "totalEarned": { "type": "number" },
+        "totalRedeemed": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "balance", "totalEarned", "totalRedeemed", "updatedAt"]
+    },
+    "PointsTransaction": {
+      "title": "PointsTransaction",
+      "description": "Immutable loyalty points transaction ledger entry.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["earn_trip", "redeem_trip", "referral_bonus", "admin_adjust", "refund_points"] },
+        "amount": { "type": "number" },
+        "bookingId": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 240 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "amount", "description", "createdBy", "createdAt"]
+    },
+    "Referral": {
+      "title": "Referral",
+      "description": "Referral tracking record between referrer and referee.",
+      "type": "object",
+      "properties": {
+        "referrerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "refereeId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "refereeName": { "type": "string", "maxLength": 100 },
+        "referralCode": { "type": "string", "maxLength": 24 },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "bonusPointsReferrer": { "type": "number" },
+        "bonusPointsReferee": { "type": "number" },
+        "completedBookingId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["referrerId", "refereeId", "refereeName", "referralCode", "status", "bonusPointsReferrer", "bonusPointsReferee", "createdAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Verified passenger review for a completed booking.",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "tripId": { "type": "string", "maxLength": 128 },
+        "driverId": { "type": "string", "maxLength": 128 },
+        "passengerId": { "type": "string", "maxLength": 128 },
+        "passengerName": { "type": "string", "maxLength": 100 },
+        "driverRating": { "type": "number" },
+        "vehicleRating": { "type": "number" },
+        "experienceRating": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 600 },
+        "status": { "type": "string", "enum": ["published", "hidden"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["bookingId", "tripId", "driverId", "passengerId", "passengerName", "driverRating", "vehicleRating", "experienceRating", "comment", "status", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Real-time trilingual notification.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "titleAr": { "type": "string", "maxLength": 140 },
+        "titleKu": { "type": "string", "maxLength": 140 },
+        "titleEn": { "type": "string", "maxLength": 140 },
+        "bodyAr": { "type": "string", "maxLength": 360 },
+        "bodyKu": { "type": "string", "maxLength": 360 },
+        "bodyEn": { "type": "string", "maxLength": 360 },
+        "type": { "type": "string", "enum": ["booking", "payment", "loyalty", "driver_status", "seat_alert", "system"] },
+        "relatedId": { "type": "string", "maxLength": 128 },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "titleAr", "titleKu", "titleEn", "bodyAr", "bodyKu", "bodyEn", "type", "isRead", "createdAt"]
+    },
+    "Complaint": {
+      "title": "Complaint",
+      "description": "Support ticket or problem report.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userRole": { "type": "string", "enum": ["passenger", "driver"] },
+        "bookingId": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "enum": ["payment", "driver_behavior", "passenger_behavior", "vehicle", "app_issue", "other"] },
+        "subject": { "type": "string", "maxLength": 140 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["open", "investigating", "resolved", "dismissed"] },
+        "adminNotes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "userRole", "category", "subject", "description", "status", "createdAt", "updatedAt"]
+    },
+    "SeatAlert": {
+      "title": "SeatAlert",
+      "description": "Passenger subscription for seat availability on a full trip.",
+      "type": "object",
+      "properties": {
+        "tripId": { "type": "string", "maxLength": 128 },
+        "driverId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "requestedSeats": { "type": "number" },
+        "notified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tripId", "driverId", "userId", "requestedSeats", "notified", "createdAt"]
+    },
+    "PublicDriver": {
+      "title": "PublicDriver",
+      "description": "Public non-PII verified driver card showcase.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fullName": { "type": "string", "maxLength": 100 },
+        "governorateId": { "type": "string", "maxLength": 64 },
+        "homeGarageId": { "type": "string", "maxLength": 64 },
+        "operatingGovIds": { "type": "array" },
+        "verificationStatus": { "type": "string", "enum": ["pending", "approved", "rejected", "suspended"] },
+        "isAvailable": { "type": "boolean" },
+        "ratingAvg": { "type": "number" },
+        "ratingCount": { "type": "number" },
+        "completedTripsCount": { "type": "number" },
+        "vehicleModel": { "type": "string", "maxLength": 100 },
+        "vehiclePhotoUrl": { "type": "string", "maxLength": 220000 },
+        "bio": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "fullName", "governorateId", "verificationStatus", "isAvailable", "ratingAvg", "ratingCount", "completedTripsCount", "updatedAt"]
+    },
+    "ReferralCode": {
+      "title": "ReferralCode",
+      "description": "Zero-PII lookup table mapping referral code to owner UID.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 24, "pattern": "^[A-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "ownerId", "createdAt"]
+    },
+    "PlatformSettings": {
+      "title": "PlatformSettings",
+      "description": "Admin-configurable loyalty, referral, commission, and cancellation rules.",
+      "type": "object",
+      "properties": {
+        "pointsPerTrip": { "type": "number" },
+        "freeTripCostPoints": { "type": "number" },
+        "maxFreeTripValueIqd": { "type": "number" },
+        "referralBonusReferrer": { "type": "number" },
+        "referralBonusReferee": { "type": "number" },
+        "commissionRatePercent": { "type": "number" },
+        "cancellationHoursLimit": { "type": "number" },
+        "supportPhone": { "type": "string", "maxLength": 32 },
+        "supportEmail": { "type": "string", "maxLength": 120 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["pointsPerTrip", "freeTripCostPoints", "maxFreeTripValueIqd", "referralBonusReferrer", "referralBonusReferee", "commissionRatePercent", "cancellationHoursLimit", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Admin privilege documents."
+    },
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Operational user profile (non-PII)."
+    },
+    "/users/{uid}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivate" },
+      "description": "Isolated PII document (email, phone)."
+    },
+    "/drivers/{driverId}": {
+      "schema": { "$ref": "#/entities/Driver" },
+      "description": "Driver verification profile and metrics."
+    },
+    "/vehicles/{vehicleId}": {
+      "schema": { "$ref": "#/entities/Vehicle" },
+      "description": "Driver vehicles."
+    },
+    "/governorates/{govId}": {
+      "schema": { "$ref": "#/entities/Governorate" },
+      "description": "Iraqi governorates."
+    },
+    "/cities/{cityId}": {
+      "schema": { "$ref": "#/entities/City" },
+      "description": "Cities within governorates."
+    },
+    "/garages/{garageId}": {
+      "schema": { "$ref": "#/entities/Garage" },
+      "description": "Intercity taxi garages and stations."
+    },
+    "/trips/{tripId}": {
+      "schema": { "$ref": "#/entities/Trip" },
+      "description": "Published intercity shared taxi trips."
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Seat booking requests and confirmed bookings."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Cash payment records per accepted booking."
+    },
+    "/points_wallets/{userId}": {
+      "schema": { "$ref": "#/entities/PointsWallet" },
+      "description": "Passenger loyalty points balances."
+    },
+    "/points_transactions/{txId}": {
+      "schema": { "$ref": "#/entities/PointsTransaction" },
+      "description": "Audit log of loyalty points credits and redemptions."
+    },
+    "/referrals/{referralId}": {
+      "schema": { "$ref": "#/entities/Referral" },
+      "description": "Referral tracking records."
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/Review" },
+      "description": "Verified trip and driver reviews."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notifications."
+    },
+    "/complaints/{complaintId}": {
+      "schema": { "$ref": "#/entities/Complaint" },
+      "description": "Customer complaints and support tickets."
+    },
+    "/seat_alerts/{alertId}": {
+      "schema": { "$ref": "#/entities/SeatAlert" },
+      "description": "Alerts for full trips."
+    },
+    "/public_drivers/{driverId}": {
+      "schema": { "$ref": "#/entities/PublicDriver" },
+      "description": "Public non-PII verified driver profiles."
+    },
+    "/referral_codes/{code}": {
+      "schema": { "$ref": "#/entities/ReferralCode" },
+      "description": "Zero-PII referral code lookup."
+    },
+    "/platform_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/PlatformSettings" },
+      "description": "Global platform configuration."
+    }
+  }
+}
