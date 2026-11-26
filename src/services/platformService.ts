@@ -20,6 +20,9 @@ import {
   IRAQ_GOVERNORATES,
   RAFIDAIN_TRANSFER_NUMBER,
   WEEKLY_DRIVER_COMMISSION_IQD,
+  formatIraqiPlate,
+  sanitizePlateDigits,
+  sanitizePlateLetter,
 } from '../data/iraqReferenceData';
 import {
   getSeatIdsForCapacity,
@@ -157,10 +160,17 @@ export interface RegisterProfilePayload {
   nationalIdNumber?: string;
   licenseNumber?: string;
   idDocumentUrl?: string;
+  idFrontUrl?: string;
+  idBackUrl?: string;
   licenseDocumentUrl?: string;
+  licenseFrontUrl?: string;
+  licenseBackUrl?: string;
   vehicleModel?: string;
   vehicleYear?: number;
   plateNumber?: string;
+  plateGovCode?: string;
+  plateLetter?: string;
+  plateDigits?: string;
   vehicleColor?: string;
   passengerCapacity?: number;
   vehiclePhotoUrl?: string;
@@ -196,6 +206,10 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
 
   const finalRole: UserRole = role === 'driver' ? 'driver' : 'passenger';
   const myReferralCode = generateReferralCode(uid);
+  const resolvedIdFront = payload.idFrontUrl || payload.idDocumentUrl || '';
+  const resolvedIdBack = payload.idBackUrl || '';
+  const resolvedLicFront = payload.licenseFrontUrl || payload.licenseDocumentUrl || '';
+  const resolvedLicBack = payload.licenseBackUrl || '';
 
   try {
     const settingsSnap = await getDoc(doc(db, 'platform_settings', 'global'));
@@ -218,21 +232,41 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    if (payload.idDocumentUrl) {
-      userDoc.idDocumentUrl = payload.idDocumentUrl;
-    }
     if (payload.portraitUrl) {
       userDoc.portraitUrl = payload.portraitUrl;
     }
-    if (payload.licenseDocumentUrl) {
-      userDoc.licenseDocumentUrl = payload.licenseDocumentUrl;
+    if (finalRole === 'driver') {
+      if (resolvedIdFront) {
+        userDoc.idDocumentUrl = resolvedIdFront;
+        userDoc.idFrontUrl = resolvedIdFront;
+      }
+      if (resolvedIdBack) {
+        userDoc.idBackUrl = resolvedIdBack;
+      }
+      if (resolvedLicFront) {
+        userDoc.licenseDocumentUrl = resolvedLicFront;
+        userDoc.licenseFrontUrl = resolvedLicFront;
+      }
+      if (resolvedLicBack) {
+        userDoc.licenseBackUrl = resolvedLicBack;
+      }
     }
     if (payload.vehicleModel && payload.vehicleModel.trim()) {
       userDoc.vehicleModel = payload.vehicleModel.trim();
     }
-    if (payload.plateNumber && payload.plateNumber.trim()) {
-      userDoc.plateNumber = payload.plateNumber.trim();
+    const cleanGovCode = (payload.plateGovCode || '').trim().slice(0, 8);
+    const cleanLetter = sanitizePlateLetter(payload.plateLetter || '');
+    const cleanDigits = sanitizePlateDigits(payload.plateDigits || '');
+    const resolvedPlate =
+      (cleanGovCode && cleanLetter && cleanDigits
+        ? formatIraqiPlate(cleanGovCode, cleanLetter, cleanDigits, 'ar')
+        : '') || (payload.plateNumber || '').trim().slice(0, 48);
+    if (resolvedPlate) {
+      userDoc.plateNumber = resolvedPlate;
     }
+    if (cleanGovCode) userDoc.plateGovCode = cleanGovCode;
+    if (cleanLetter) userDoc.plateLetter = cleanLetter;
+    if (cleanDigits) userDoc.plateDigits = cleanDigits;
     if (referrerId) {
       userDoc.referredBy = referrerId;
     }
@@ -279,8 +313,12 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
         homeGarageId: payload.homeGarageId || '',
         licenseNumber: (payload.licenseNumber || 'PENDING').trim(),
         nationalIdNumber: (payload.nationalIdNumber || 'PENDING').trim(),
-        idDocumentUrl: payload.idDocumentUrl || '',
-        licenseDocumentUrl: payload.licenseDocumentUrl || '',
+        idDocumentUrl: resolvedIdFront,
+        idFrontUrl: resolvedIdFront,
+        idBackUrl: resolvedIdBack,
+        licenseDocumentUrl: resolvedLicFront,
+        licenseFrontUrl: resolvedLicFront,
+        licenseBackUrl: resolvedLicBack,
         operatingGovIds: [governorateId],
         verificationStatus: 'pending',
         isAvailable: true,
@@ -305,13 +343,16 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
         vehiclePhotoUrl: payload.vehiclePhotoUrl || '',
         updatedAt: serverTimestamp(),
       });
-      if (payload.vehicleModel && payload.plateNumber) {
+      if (payload.vehicleModel && resolvedPlate) {
         const vehicleRef = doc(collection(db, 'vehicles'));
         batch.set(vehicleRef, {
           driverId: uid,
           makeModel: payload.vehicleModel.trim(),
           year: Number(payload.vehicleYear) || 2022,
-          plateNumber: payload.plateNumber.trim(),
+          plateNumber: resolvedPlate,
+          ...(cleanGovCode ? { plateGovCode: cleanGovCode } : {}),
+          ...(cleanLetter ? { plateLetter: cleanLetter } : {}),
+          ...(cleanDigits ? { plateDigits: cleanDigits } : {}),
           color: (payload.vehicleColor || '').trim(),
           passengerCapacity: Number(payload.passengerCapacity) || 4,
           hasAc: true,
@@ -355,17 +396,20 @@ export async function updatePassengerProfile(
 
 export async function resubmitPassengerVerificationDocs(
   uid: string,
-  payload: { idDocumentUrl: string; portraitUrl: string }
+  payload: { portraitUrl: string; idDocumentUrl?: string }
 ): Promise<void> {
   try {
-    await updateDoc(doc(db, 'users', uid), {
-      idDocumentUrl: payload.idDocumentUrl,
+    const patch: Record<string, unknown> = {
       portraitUrl: payload.portraitUrl,
       photoUrl: payload.portraitUrl,
       verificationStatus: 'pending',
       rejectionReason: '',
       updatedAt: serverTimestamp(),
-    });
+    };
+    if (payload.idDocumentUrl) {
+      patch.idDocumentUrl = payload.idDocumentUrl;
+    }
+    await updateDoc(doc(db, 'users', uid), patch);
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
   }
@@ -381,7 +425,11 @@ export async function updateDriverDocumentsAndVehicle(
     licenseNumber: string;
     nationalIdNumber: string;
     idDocumentUrl?: string;
+    idFrontUrl?: string;
+    idBackUrl?: string;
     licenseDocumentUrl?: string;
+    licenseFrontUrl?: string;
+    licenseBackUrl?: string;
     bio?: string;
   },
   vehicleData: {
@@ -389,6 +437,9 @@ export async function updateDriverDocumentsAndVehicle(
     makeModel: string;
     year: number;
     plateNumber: string;
+    plateGovCode?: string;
+    plateLetter?: string;
+    plateDigits?: string;
     color: string;
     passengerCapacity: number;
     hasAc: boolean;
@@ -405,6 +456,8 @@ export async function updateDriverDocumentsAndVehicle(
       (usrSnap.exists() && usrSnap.data().verificationStatus === 'rejected');
 
     const batch = writeBatch(db);
+    const nextIdFront = driverData.idFrontUrl ?? driverData.idDocumentUrl;
+    const nextLicFront = driverData.licenseFrontUrl ?? driverData.licenseDocumentUrl;
     const driverPatch: Record<string, unknown> = {
       fullName: driverData.fullName.trim(),
       phone: driverData.phone.trim(),
@@ -415,8 +468,16 @@ export async function updateDriverDocumentsAndVehicle(
       bio: (driverData.bio || '').trim(),
       updatedAt: serverTimestamp(),
     };
-    if (driverData.idDocumentUrl !== undefined) driverPatch.idDocumentUrl = driverData.idDocumentUrl;
-    if (driverData.licenseDocumentUrl !== undefined) driverPatch.licenseDocumentUrl = driverData.licenseDocumentUrl;
+    if (nextIdFront !== undefined) {
+      driverPatch.idDocumentUrl = nextIdFront;
+      driverPatch.idFrontUrl = nextIdFront;
+    }
+    if (driverData.idBackUrl !== undefined) driverPatch.idBackUrl = driverData.idBackUrl;
+    if (nextLicFront !== undefined) {
+      driverPatch.licenseDocumentUrl = nextLicFront;
+      driverPatch.licenseFrontUrl = nextLicFront;
+    }
+    if (driverData.licenseBackUrl !== undefined) driverPatch.licenseBackUrl = driverData.licenseBackUrl;
     if (wasRejected) {
       driverPatch.verificationStatus = 'pending';
       driverPatch.rejectionReason = '';
@@ -443,20 +504,39 @@ export async function updateDriverDocumentsAndVehicle(
         rejectionReason: '',
         updatedAt: serverTimestamp(),
       };
-      if (driverData.idDocumentUrl && driverData.idDocumentUrl.length <= 2000) {
-        userPatch.idDocumentUrl = driverData.idDocumentUrl;
+      if (nextIdFront) {
+        userPatch.idDocumentUrl = nextIdFront;
+        userPatch.idFrontUrl = nextIdFront;
       }
-      if (driverData.licenseDocumentUrl && driverData.licenseDocumentUrl.length <= 2000) {
-        userPatch.licenseDocumentUrl = driverData.licenseDocumentUrl;
+      if (driverData.idBackUrl) {
+        userPatch.idBackUrl = driverData.idBackUrl;
+      }
+      if (nextLicFront) {
+        userPatch.licenseDocumentUrl = nextLicFront;
+        userPatch.licenseFrontUrl = nextLicFront;
+      }
+      if (driverData.licenseBackUrl) {
+        userPatch.licenseBackUrl = driverData.licenseBackUrl;
       }
       batch.update(doc(db, 'users', uid), userPatch);
     }
+
+    const cleanGovCode = (vehicleData.plateGovCode || '').trim().slice(0, 8);
+    const cleanLetter = sanitizePlateLetter(vehicleData.plateLetter || '');
+    const cleanDigits = sanitizePlateDigits(vehicleData.plateDigits || '');
+    const resolvedPlate =
+      (cleanGovCode && cleanLetter && cleanDigits
+        ? formatIraqiPlate(cleanGovCode, cleanLetter, cleanDigits, 'ar')
+        : '') || vehicleData.plateNumber.trim().slice(0, 48);
 
     if (vehicleData.vehicleId) {
       batch.update(doc(db, 'vehicles', vehicleData.vehicleId), {
         makeModel: vehicleData.makeModel.trim(),
         year: Number(vehicleData.year),
-        plateNumber: vehicleData.plateNumber.trim(),
+        plateNumber: resolvedPlate,
+        plateGovCode: cleanGovCode,
+        plateLetter: cleanLetter,
+        plateDigits: cleanDigits,
         color: vehicleData.color.trim(),
         passengerCapacity: Number(vehicleData.passengerCapacity),
         hasAc: vehicleData.hasAc,
@@ -469,7 +549,10 @@ export async function updateDriverDocumentsAndVehicle(
         driverId: uid,
         makeModel: vehicleData.makeModel.trim(),
         year: Number(vehicleData.year),
-        plateNumber: vehicleData.plateNumber.trim(),
+        plateNumber: resolvedPlate,
+        plateGovCode: cleanGovCode,
+        plateLetter: cleanLetter,
+        plateDigits: cleanDigits,
         color: vehicleData.color.trim(),
         passengerCapacity: Number(vehicleData.passengerCapacity),
         hasAc: vehicleData.hasAc,
@@ -503,6 +586,9 @@ export async function publishTrip(input: {
   vehicle?: Vehicle | null;
   vehicleModel?: string;
   vehiclePlate?: string;
+  plateGovCode?: string;
+  plateLetter?: string;
+  plateDigits?: string;
   vehiclePhotoUrl?: string;
   departureGovId: string;
   destinationGovId: string;
@@ -577,7 +663,19 @@ export async function publishTrip(input: {
   const resolvedVehicleModel = input.vehicle
     ? `${input.vehicle.makeModel} (${input.vehicle.year})`
     : (input.vehicleModel || 'تكسي بين المحافظات').trim();
-  const resolvedVehiclePlate = (input.vehicle?.plateNumber || input.vehiclePlate || '').trim();
+  const cleanPlateGovCode = (input.vehicle?.plateGovCode || input.plateGovCode || '').trim().slice(0, 8);
+  const cleanPlateLetter = sanitizePlateLetter(input.vehicle?.plateLetter || input.plateLetter || '');
+  const cleanPlateDigits = sanitizePlateDigits(input.vehicle?.plateDigits || input.plateDigits || '');
+  const resolvedVehiclePlate = (
+    (cleanPlateGovCode && cleanPlateLetter && cleanPlateDigits
+      ? formatIraqiPlate(cleanPlateGovCode, cleanPlateLetter, cleanPlateDigits, 'ar')
+      : '') ||
+    input.vehicle?.plateNumber ||
+    input.vehiclePlate ||
+    ''
+  )
+    .trim()
+    .slice(0, 48);
   const resolvedVehiclePhoto = input.vehicle?.photoUrl || input.vehiclePhotoUrl || '';
 
   try {
@@ -589,7 +687,10 @@ export async function publishTrip(input: {
       driverVerified: true,
       vehicleId: resolvedVehicleId,
       vehicleModel: resolvedVehicleModel.slice(0, 100),
-      vehiclePlate: resolvedVehiclePlate.slice(0, 40),
+      vehiclePlate: resolvedVehiclePlate,
+      ...(cleanPlateGovCode ? { plateGovCode: cleanPlateGovCode } : {}),
+      ...(cleanPlateLetter ? { plateLetter: cleanPlateLetter } : {}),
+      ...(cleanPlateDigits ? { plateDigits: cleanPlateDigits } : {}),
       vehiclePhotoUrl: resolvedVehiclePhoto,
       departureGovId: input.departureGovId,
       destinationGovId: input.destinationGovId,
@@ -943,6 +1044,10 @@ export async function createBookingTransaction(input: {
         passengerPhone: passengerPhone || '',
         driverId: liveTrip.driverId,
         driverName: liveTrip.driverName,
+        ...(liveTrip.vehiclePlate ? { vehiclePlate: liveTrip.vehiclePlate.slice(0, 48) } : {}),
+        ...(liveTrip.plateGovCode ? { plateGovCode: liveTrip.plateGovCode.slice(0, 8) } : {}),
+        ...(liveTrip.plateLetter ? { plateLetter: liveTrip.plateLetter.slice(0, 2) } : {}),
+        ...(liveTrip.plateDigits ? { plateDigits: liveTrip.plateDigits.slice(0, 12) } : {}),
         departureGovId: liveTrip.departureGovId,
         destinationGovId: liveTrip.destinationGovId,
         departureDate: liveTrip.departureDate,
@@ -1015,6 +1120,18 @@ export async function createBookingTransaction(input: {
           passengerPhone: passengerPhone || '',
           driverId: returnLiveTrip.driverId,
           driverName: returnLiveTrip.driverName,
+          ...(returnLiveTrip.vehiclePlate
+            ? { vehiclePlate: returnLiveTrip.vehiclePlate.slice(0, 48) }
+            : {}),
+          ...(returnLiveTrip.plateGovCode
+            ? { plateGovCode: returnLiveTrip.plateGovCode.slice(0, 8) }
+            : {}),
+          ...(returnLiveTrip.plateLetter
+            ? { plateLetter: returnLiveTrip.plateLetter.slice(0, 2) }
+            : {}),
+          ...(returnLiveTrip.plateDigits
+            ? { plateDigits: returnLiveTrip.plateDigits.slice(0, 12) }
+            : {}),
           departureGovId: returnLiveTrip.departureGovId,
           destinationGovId: returnLiveTrip.destinationGovId,
           departureDate: returnLiveTrip.departureDate,
@@ -1796,6 +1913,12 @@ export async function adminSetUserVerification(
       batch.update(doc(db, 'public_drivers', uid), {
         verificationStatus: status,
         updatedAt: serverTimestamp(),
+      });
+    }
+    if (status === 'approved' && drvSnap.exists()) {
+      const vSnap = await getDocs(query(collection(db, 'vehicles'), where('driverId', '==', uid)));
+      vSnap.docs.forEach((vDoc) => {
+        batch.update(vDoc.ref, { verified: true, updatedAt: serverTimestamp() });
       });
     }
     batch.set(doc(collection(db, 'notifications')), {

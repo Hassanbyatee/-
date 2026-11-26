@@ -13,6 +13,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
+import { formatIraqiPlateDisplay } from '../data/iraqReferenceData';
 import {
   getTripMaxSeatPrice,
   getTripMinSeatPrice,
@@ -40,7 +41,7 @@ export const TripCard: React.FC<TripCardProps> = ({
   onBookFullCar,
   onSeatAlert,
 }) => {
-  const { dir, getLocalizedName, formatIqd, t } = useI18n();
+  const { dir, lang, getLocalizedName, formatIqd, t } = useI18n();
   const [alertSaved, setAlertSaved] = useState(false);
 
   const depGov = governorates.find((g) => g.id === trip.departureGovId);
@@ -54,6 +55,7 @@ export const TripCard: React.FC<TripCardProps> = ({
   const hasVariedSeatPrices = maxSeatPrice > minSeatPrice;
   const hasFullCarPrice = Number(trip.fullCarPriceIqd || 0) > 0;
   const isCompletelyEmpty = isTripCompletelyEmpty(trip);
+  const formattedPlate = formatIraqiPlateDisplay(trip, lang);
 
   const handleAlert = async () => {
     await onSeatAlert(trip);
@@ -89,6 +91,14 @@ export const TripCard: React.FC<TripCardProps> = ({
             </h3>
             <div className="text-sm text-slate-600 mt-1 flex items-center gap-1.5 flex-wrap">
               <span className="font-medium text-[#05203C]">{trip.vehicleModel}</span>
+              {formattedPlate && (
+                <span
+                  dir="ltr"
+                  className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#F7F9FB] border border-[#CBD5E1] text-[11px] font-mono font-bold text-[#05203C] tabular-nums"
+                >
+                  {formattedPlate}
+                </span>
+              )}
               <span aria-hidden="true">·</span>
               <span className="inline-flex items-center gap-1">
                 <span>{trip.driverName}</span>
@@ -176,9 +186,12 @@ export const TripCard: React.FC<TripCardProps> = ({
           ) : (
             <div className="flex flex-col items-center justify-center text-[#05203C]/70 px-2 text-center">
               <Car className="w-7 h-7 text-[#0770E3]" />
-              {trip.vehiclePlate ? (
-                <span className="text-[10px] font-mono text-slate-500 mt-0.5 truncate max-w-full">
-                  {trip.vehiclePlate}
+              {formattedPlate ? (
+                <span
+                  dir="ltr"
+                  className="text-[10px] font-mono text-slate-600 font-semibold mt-0.5 truncate max-w-full"
+                >
+                  {formattedPlate}
                 </span>
               ) : null}
             </div>

@@ -16,6 +16,8 @@ import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
 import { uploadVerificationImage } from '../services/imageUtils';
 import { registerUserProfile } from '../services/platformService';
+import { formatIraqiPlate, getPlateGovByGovId } from '../data/iraqReferenceData';
+import { IraqiPlateInput } from './IraqiPlateInput';
 import { AnimatedModalShell } from './motion/KineticPrimitives';
 import type { UserRole } from '../types/domain';
 
@@ -173,20 +175,26 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
   const [governorateId, setGovernorateId] = useState('bgw');
   const [referralCodeInput, setReferralCodeInput] = useState('');
 
-  // Driver vehicle inputs
+  // Driver vehicle inputs (3-part Iraqi plate)
   const [vehicleModel, setVehicleModel] = useState('');
-  const [plateNumber, setPlateNumber] = useState('');
+  const [plateGovCode, setPlateGovCode] = useState('11');
+  const [plateLetter, setPlateLetter] = useState('');
+  const [plateDigits, setPlateDigits] = useState('');
+  const plateGovManualRef = useRef(false);
 
-  // Verification photo files (2 for passenger, 3 for driver)
-  const [idPhoto, setIdPhoto] = useState<SelectedPhoto | null>(null);
+  // Verification photo files (1 portrait for passenger, 5 for driver: portrait + front/back ID + front/back license)
   const [portraitPhoto, setPortraitPhoto] = useState<SelectedPhoto | null>(null);
-  const [licensePhoto, setLicensePhoto] = useState<SelectedPhoto | null>(null);
+  const [idFrontPhoto, setIdFrontPhoto] = useState<SelectedPhoto | null>(null);
+  const [idBackPhoto, setIdBackPhoto] = useState<SelectedPhoto | null>(null);
+  const [licenseFrontPhoto, setLicenseFrontPhoto] = useState<SelectedPhoto | null>(null);
+  const [licenseBackPhoto, setLicenseBackPhoto] = useState<SelectedPhoto | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [progressStep, setProgressStep] = useState<'' | 'signingIn' | 'uploading' | 'saving'>('');
   const [errorMsg, setErrorMsg] = useState('');
 
   const isSubmittingRef = useRef(false);
+  const previewUrlsRef = useRef<string[]>([]);
 
   useEffect(() => {
     if (isOpen && !isSubmittingRef.current) {
@@ -222,14 +230,22 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
     if (refParam) setReferralCodeInput(refParam.toUpperCase());
   }, []);
 
-  // Revoke object URLs on unmount/change
+  // Track active preview URLs for clean unmount revocation
+  useEffect(() => {
+    previewUrlsRef.current = [
+      portraitPhoto?.previewUrl,
+      idFrontPhoto?.previewUrl,
+      idBackPhoto?.previewUrl,
+      licenseFrontPhoto?.previewUrl,
+      licenseBackPhoto?.previewUrl,
+    ].filter((u): u is string => Boolean(u));
+  }, [portraitPhoto, idFrontPhoto, idBackPhoto, licenseFrontPhoto, licenseBackPhoto]);
+
   useEffect(() => {
     return () => {
-      if (idPhoto?.previewUrl) URL.revokeObjectURL(idPhoto.previewUrl);
-      if (portraitPhoto?.previewUrl) URL.revokeObjectURL(portraitPhoto.previewUrl);
-      if (licensePhoto?.previewUrl) URL.revokeObjectURL(licensePhoto.previewUrl);
+      previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [idPhoto, portraitPhoto, licensePhoto]);
+  }, []);
 
   const setPhotoState = (
     file: File | undefined,
@@ -288,22 +304,34 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
   const canSubmitOnboarding = useMemo(() => {
     if (!firebaseUser || !hasCommonFields) return false;
     if (role === 'passenger') {
-      return Boolean(idPhoto && portraitPhoto);
+      return Boolean(portraitPhoto);
     }
     return (
       vehicleModel.trim().length >= 2 &&
-      plateNumber.trim().length >= 2 &&
-      Boolean(idPhoto && portraitPhoto && licensePhoto)
+      Boolean(plateGovCode) &&
+      plateLetter.length === 1 &&
+      plateDigits.length >= 1 &&
+      Boolean(
+        portraitPhoto &&
+          idFrontPhoto &&
+          idBackPhoto &&
+          licenseFrontPhoto &&
+          licenseBackPhoto
+      )
     );
   }, [
     firebaseUser,
     hasCommonFields,
     role,
-    idPhoto,
     portraitPhoto,
-    licensePhoto,
+    idFrontPhoto,
+    idBackPhoto,
+    licenseFrontPhoto,
+    licenseBackPhoto,
     vehicleModel,
-    plateNumber,
+    plateGovCode,
+    plateLetter,
+    plateDigits,
   ]);
 
   const handleGoogleSignIn = async () => {
@@ -338,24 +366,15 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
     try {
       const uid = firebaseUser.uid;
       const timestamp = Date.now();
-      let uploadedIdUrl = '';
       let uploadedPortraitUrl = '';
-      let uploadedLicenseUrl = '';
+      let uploadedIdFrontUrl = '';
+      let uploadedIdBackUrl = '';
+      let uploadedLicenseFrontUrl = '';
+      let uploadedLicenseBackUrl = '';
 
       setProgressStep('uploading');
       const folder = role === 'driver' ? 'drivers' : 'passengers';
       const uploadTasks: Promise<void>[] = [];
-
-      if (idPhoto) {
-        uploadTasks.push(
-          uploadVerificationImage(
-            idPhoto.file,
-            `verifications/${folder}/${uid}/id_card_${timestamp}.jpg`
-          ).then((url) => {
-            uploadedIdUrl = url;
-          })
-        );
-      }
 
       if (portraitPhoto) {
         uploadTasks.push(
@@ -368,20 +387,54 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
         );
       }
 
-      if (role === 'driver' && licensePhoto) {
-        uploadTasks.push(
-          uploadVerificationImage(
-            licensePhoto.file,
-            `verifications/drivers/${uid}/driving_license_${timestamp}.jpg`
-          ).then((url) => {
-            uploadedLicenseUrl = url;
-          })
-        );
+      if (role === 'driver') {
+        if (idFrontPhoto) {
+          uploadTasks.push(
+            uploadVerificationImage(
+              idFrontPhoto.file,
+              `verifications/drivers/${uid}/id_front_${timestamp}.jpg`
+            ).then((url) => {
+              uploadedIdFrontUrl = url;
+            })
+          );
+        }
+        if (idBackPhoto) {
+          uploadTasks.push(
+            uploadVerificationImage(
+              idBackPhoto.file,
+              `verifications/drivers/${uid}/id_back_${timestamp}.jpg`
+            ).then((url) => {
+              uploadedIdBackUrl = url;
+            })
+          );
+        }
+        if (licenseFrontPhoto) {
+          uploadTasks.push(
+            uploadVerificationImage(
+              licenseFrontPhoto.file,
+              `verifications/drivers/${uid}/license_front_${timestamp}.jpg`
+            ).then((url) => {
+              uploadedLicenseFrontUrl = url;
+            })
+          );
+        }
+        if (licenseBackPhoto) {
+          uploadTasks.push(
+            uploadVerificationImage(
+              licenseBackPhoto.file,
+              `verifications/drivers/${uid}/license_back_${timestamp}.jpg`
+            ).then((url) => {
+              uploadedLicenseBackUrl = url;
+            })
+          );
+        }
       }
 
       await Promise.all(uploadTasks);
 
       setProgressStep('saving');
+      const formattedPlate =
+        role === 'driver' ? formatIraqiPlate(plateGovCode, plateLetter, plateDigits, 'ar') : '';
       await registerUserProfile({
         uid,
         email: firebaseUser.email || '',
@@ -393,12 +446,19 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
         verificationStatus: 'pending',
         photoUrl: uploadedPortraitUrl || firebaseUser.photoURL || '',
         portraitUrl: uploadedPortraitUrl,
-        idDocumentUrl: uploadedIdUrl,
-        licenseDocumentUrl: uploadedLicenseUrl,
+        idDocumentUrl: role === 'driver' ? uploadedIdFrontUrl : '',
+        idFrontUrl: role === 'driver' ? uploadedIdFrontUrl : '',
+        idBackUrl: role === 'driver' ? uploadedIdBackUrl : '',
+        licenseDocumentUrl: role === 'driver' ? uploadedLicenseFrontUrl : '',
+        licenseFrontUrl: role === 'driver' ? uploadedLicenseFrontUrl : '',
+        licenseBackUrl: role === 'driver' ? uploadedLicenseBackUrl : '',
         referralCodeInput,
         homeGarageId: govGarages[0]?.id || garages[0]?.id || '',
         vehicleModel: role === 'driver' ? vehicleModel : '',
-        plateNumber: role === 'driver' ? plateNumber : '',
+        plateNumber: formattedPlate,
+        plateGovCode: role === 'driver' ? plateGovCode : '',
+        plateLetter: role === 'driver' ? plateLetter : '',
+        plateDigits: role === 'driver' ? plateDigits : '',
       });
 
       onCompleted?.(role);
@@ -667,7 +727,14 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                   <select
                     value={governorateId}
                     disabled={loading}
-                    onChange={(e) => setGovernorateId(e.target.value)}
+                    onChange={(e) => {
+                      const nextGov = e.target.value;
+                      setGovernorateId(nextGov);
+                      if (!plateGovManualRef.current) {
+                        const mapped = getPlateGovByGovId(nextGov);
+                        if (mapped) setPlateGovCode(mapped.code);
+                      }
+                    }}
                     className="w-full h-11 px-3.5 text-sm border border-[#CBD5E1] rounded-xl bg-white focus:outline-none focus:border-[#0770E3]"
                   >
                     {governorates.map((g) => (
@@ -701,7 +768,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                   <h3 className="text-xs font-bold uppercase tracking-wide text-[#05203C]">
                     {t.auth.vehicleSection}
                   </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="space-y-3.5">
                     <div>
                       <label className="block text-xs font-bold text-[#05203C] mb-1.5">
                         {t.auth.vehicleModel} <span className="text-rose-600">*</span>
@@ -722,23 +789,28 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                       <label className="block text-xs font-bold text-[#05203C] mb-1.5">
                         {t.auth.plateNumber} <span className="text-rose-600">*</span>
                       </label>
-                      <input
-                        type="text"
-                        required
-                        minLength={2}
-                        maxLength={40}
+                      <IraqiPlateInput
+                        govCode={plateGovCode}
+                        letter={plateLetter}
+                        digits={plateDigits}
                         disabled={loading}
-                        value={plateNumber}
-                        onChange={(e) => setPlateNumber(e.target.value)}
-                        className="w-full h-11 px-3.5 text-sm border border-[#CBD5E1] rounded-xl font-mono focus:outline-none focus:border-[#0770E3]"
+                        required={role === 'driver'}
+                        onChange={(next) => {
+                          if (next.govCode !== plateGovCode) {
+                            plateGovManualRef.current = true;
+                          }
+                          setPlateGovCode(next.govCode);
+                          setPlateLetter(next.letter);
+                          setPlateDigits(next.digits);
+                        }}
                       />
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Mandatory Verification Photos (2 Passenger, 3 Driver) */}
-              <div className="pt-4 border-t border-[#E0E4E8] space-y-3">
+              {/* Mandatory Verification Photos (Portrait only for Passenger; Portrait + Front/Back ID & License for Driver) */}
+              <div className="pt-4 border-t border-[#E0E4E8] space-y-3.5">
                 <div className="space-y-1">
                   <h3 className="text-xs sm:text-sm font-bold text-[#05203C]">
                     {t.auth.requiredDocsTitle}
@@ -750,49 +822,99 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                   </p>
                 </div>
 
-                <div
-                  className={`grid grid-cols-1 gap-3 ${
-                    role === 'driver' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
-                  }`}
-                >
-                  <PhotoUploadCard
-                    label={t.auth.idCardPhoto}
-                    requiredLabel={t.auth.requiredTag}
-                    tapToUploadLabel={t.auth.tapToUpload}
-                    replaceLabel={t.auth.replacePhoto}
-                    removeLabel={t.auth.removePhoto}
-                    photo={idPhoto}
-                    disabled={loading}
-                    onSelect={(file) => setPhotoState(file, idPhoto, setIdPhoto)}
-                    onRemove={() => clearPhotoState(idPhoto, setIdPhoto)}
-                  />
+                {/* Personal Portrait (Both Roles) */}
+                <PhotoUploadCard
+                  label={t.auth.portraitPhoto}
+                  requiredLabel={t.auth.requiredTag}
+                  tapToUploadLabel={t.auth.tapToUpload}
+                  replaceLabel={t.auth.replacePhoto}
+                  removeLabel={t.auth.removePhoto}
+                  photo={portraitPhoto}
+                  disabled={loading}
+                  onSelect={(file) => setPhotoState(file, portraitPhoto, setPortraitPhoto)}
+                  onRemove={() => clearPhotoState(portraitPhoto, setPortraitPhoto)}
+                />
 
-                  <PhotoUploadCard
-                    label={t.auth.portraitPhoto}
-                    requiredLabel={t.auth.requiredTag}
-                    tapToUploadLabel={t.auth.tapToUpload}
-                    replaceLabel={t.auth.replacePhoto}
-                    removeLabel={t.auth.removePhoto}
-                    photo={portraitPhoto}
-                    disabled={loading}
-                    onSelect={(file) => setPhotoState(file, portraitPhoto, setPortraitPhoto)}
-                    onRemove={() => clearPhotoState(portraitPhoto, setPortraitPhoto)}
-                  />
+                {/* Driver-Only Grouped Front & Back Document Sections */}
+                {role === 'driver' && (
+                  <div className="space-y-3">
+                    {/* National ID: Front & Back */}
+                    <div className="rounded-xl border border-[#E0E4E8] bg-slate-50/60 p-3.5 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-[#05203C]">
+                          {t.auth.idGroupLabel}
+                        </span>
+                        <span className="text-[11px] font-semibold text-[#0770E3]">
+                          {t.auth.frontSideLabel} + {t.auth.backSideLabel}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <PhotoUploadCard
+                          label={t.auth.idFrontPhoto}
+                          requiredLabel={t.auth.requiredTag}
+                          tapToUploadLabel={t.auth.tapToUpload}
+                          replaceLabel={t.auth.replacePhoto}
+                          removeLabel={t.auth.removePhoto}
+                          photo={idFrontPhoto}
+                          disabled={loading}
+                          onSelect={(file) => setPhotoState(file, idFrontPhoto, setIdFrontPhoto)}
+                          onRemove={() => clearPhotoState(idFrontPhoto, setIdFrontPhoto)}
+                        />
+                        <PhotoUploadCard
+                          label={t.auth.idBackPhoto}
+                          requiredLabel={t.auth.requiredTag}
+                          tapToUploadLabel={t.auth.tapToUpload}
+                          replaceLabel={t.auth.replacePhoto}
+                          removeLabel={t.auth.removePhoto}
+                          photo={idBackPhoto}
+                          disabled={loading}
+                          onSelect={(file) => setPhotoState(file, idBackPhoto, setIdBackPhoto)}
+                          onRemove={() => clearPhotoState(idBackPhoto, setIdBackPhoto)}
+                        />
+                      </div>
+                    </div>
 
-                  {role === 'driver' && (
-                    <PhotoUploadCard
-                      label={t.auth.drivingLicensePhoto}
-                      requiredLabel={t.auth.requiredTag}
-                      tapToUploadLabel={t.auth.tapToUpload}
-                      replaceLabel={t.auth.replacePhoto}
-                      removeLabel={t.auth.removePhoto}
-                      photo={licensePhoto}
-                      disabled={loading}
-                      onSelect={(file) => setPhotoState(file, licensePhoto, setLicensePhoto)}
-                      onRemove={() => clearPhotoState(licensePhoto, setLicensePhoto)}
-                    />
-                  )}
-                </div>
+                    {/* Driving License: Front & Back */}
+                    <div className="rounded-xl border border-[#E0E4E8] bg-slate-50/60 p-3.5 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-[#05203C]">
+                          {t.auth.licenseGroupLabel}
+                        </span>
+                        <span className="text-[11px] font-semibold text-[#0770E3]">
+                          {t.auth.frontSideLabel} + {t.auth.backSideLabel}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <PhotoUploadCard
+                          label={t.auth.licenseFrontPhoto}
+                          requiredLabel={t.auth.requiredTag}
+                          tapToUploadLabel={t.auth.tapToUpload}
+                          replaceLabel={t.auth.replacePhoto}
+                          removeLabel={t.auth.removePhoto}
+                          photo={licenseFrontPhoto}
+                          disabled={loading}
+                          onSelect={(file) =>
+                            setPhotoState(file, licenseFrontPhoto, setLicenseFrontPhoto)
+                          }
+                          onRemove={() => clearPhotoState(licenseFrontPhoto, setLicenseFrontPhoto)}
+                        />
+                        <PhotoUploadCard
+                          label={t.auth.licenseBackPhoto}
+                          requiredLabel={t.auth.requiredTag}
+                          tapToUploadLabel={t.auth.tapToUpload}
+                          replaceLabel={t.auth.replacePhoto}
+                          removeLabel={t.auth.removePhoto}
+                          photo={licenseBackPhoto}
+                          disabled={loading}
+                          onSelect={(file) =>
+                            setPhotoState(file, licenseBackPhoto, setLicenseBackPhoto)
+                          }
+                          onRemove={() => clearPhotoState(licenseBackPhoto, setLicenseBackPhoto)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Loading Progress Feedback Banner */}

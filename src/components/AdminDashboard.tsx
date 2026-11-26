@@ -18,11 +18,13 @@ import {
   Trash2,
   Users,
   X,
+  ZoomIn,
 } from 'lucide-react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
+import { formatIraqiPlateDisplay } from '../data/iraqReferenceData';
 import {
   adminAdjustWalletPoints,
   adminDeleteGarage,
@@ -51,6 +53,7 @@ import type {
   PlatformSettings,
   Review,
   Trip,
+  UserPrivateInfo,
   UserProfile,
   Vehicle,
 } from '../types/domain';
@@ -67,7 +70,7 @@ type AdminTab =
   | 'moderation';
 
 export const AdminDashboard: React.FC = () => {
-  const { getLocalizedName, formatIqd, t } = useI18n();
+  const { lang, getLocalizedName, formatIqd, t } = useI18n();
   const { firebaseUser, isAdmin, governorates, garages, settings, signInWithGoogle } = useAuth();
 
   const [tab, setTab] = useState<AdminTab>('overview');
@@ -84,6 +87,8 @@ export const AdminDashboard: React.FC = () => {
 
   const [inspectDriver, setInspectDriver] = useState<DriverProfile | null>(null);
   const [inspectUser, setInspectUser] = useState<UserProfile | null>(null);
+  const [inspectPrivateInfo, setInspectPrivateInfo] = useState<UserPrivateInfo | null>(null);
+  const [zoomedPhoto, setZoomedPhoto] = useState<{ url: string; title: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
   // Settings form
@@ -185,6 +190,27 @@ export const AdminDashboard: React.FC = () => {
 
     return () => unsubs.forEach((u) => u());
   }, [isAdmin, firebaseUser]);
+
+  React.useEffect(() => {
+    const targetUid = inspectDriver?.uid || inspectUser?.uid;
+    if (!targetUid || !firebaseUser) {
+      setInspectPrivateInfo(null);
+      return;
+    }
+    let cancelled = false;
+    getDoc(doc(db, 'users', targetUid, 'private', 'info'))
+      .then((snap) => {
+        if (!cancelled) {
+          setInspectPrivateInfo(snap.exists() ? (snap.data() as UserPrivateInfo) : null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setInspectPrivateInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inspectDriver?.uid, inspectUser?.uid, firebaseUser]);
 
   const stats = useMemo(() => {
     const gmv = allPayments
@@ -427,6 +453,8 @@ export const AdminDashboard: React.FC = () => {
             sortedDrivers.map((drv) => {
               const gov = governorates.find((g) => g.id === drv.governorateId);
               const drvVehicles = vehicles.filter((v) => v.driverId === drv.uid);
+              const linkedUser = users.find((u) => u.uid === drv.uid);
+              const drvPlate = formatIraqiPlateDisplay(drvVehicles[0] || linkedUser, lang);
               return (
                 <div
                   key={drv.uid}
@@ -441,9 +469,21 @@ export const AdminDashboard: React.FC = () => {
                       <span className="font-mono">{drv.phone}</span>
                     </div>
                     <div className="text-base font-bold text-slate-900">{drv.fullName}</div>
-                    <div className="text-xs text-slate-600 font-mono">
-                      {t.common.idLabel}: {drv.nationalIdNumber} · {t.common.licenseLabel}: {drv.licenseNumber}
-                      {drvVehicles[0] ? ` · ${drvVehicles[0].makeModel} (${drvVehicles[0].plateNumber})` : ''}
+                    <div className="text-xs text-slate-600 font-mono flex flex-wrap items-center gap-2">
+                      <span>
+                        {t.common.idLabel}: {drv.nationalIdNumber} · {t.common.licenseLabel}: {drv.licenseNumber}
+                        {drvVehicles[0]?.makeModel || linkedUser?.vehicleModel
+                          ? ` · ${drvVehicles[0]?.makeModel || linkedUser?.vehicleModel}`
+                          : ''}
+                      </span>
+                      {drvPlate && (
+                        <span
+                          dir="ltr"
+                          className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#EFF6FF] border border-[#BFDBFE] font-bold text-[#05203C] tabular-nums"
+                        >
+                          {drvPlate}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -462,8 +502,12 @@ export const AdminDashboard: React.FC = () => {
                       <button
                         type="button"
                         onClick={async () => {
-                          await adminSetDriverVerification(drv.uid, 'approved');
-                          showToast(t.driver.savedSuccess);
+                          try {
+                            await adminSetDriverVerification(drv.uid, 'approved');
+                            showToast(t.driver.savedSuccess);
+                          } catch {
+                            showToast(t.errors.generic);
+                          }
                         }}
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-[#0770E3] text-white rounded-xl hover:bg-[#0559B8] cursor-pointer"
                       >
@@ -475,8 +519,12 @@ export const AdminDashboard: React.FC = () => {
                       <button
                         type="button"
                         onClick={async () => {
-                          await adminSetDriverVerification(drv.uid, 'suspended', t.statuses.suspended);
-                          showToast(t.driver.savedSuccess);
+                          try {
+                            await adminSetDriverVerification(drv.uid, 'suspended', t.statuses.suspended);
+                            showToast(t.driver.savedSuccess);
+                          } catch {
+                            showToast(t.errors.generic);
+                          }
                         }}
                         className="px-3.5 py-2 text-xs font-semibold text-amber-800 border border-amber-200 rounded-xl hover:bg-amber-50 cursor-pointer"
                       >
@@ -661,11 +709,8 @@ export const AdminDashboard: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{u.referralCode}</td>
-                    <td className="px-4 py-3 text-end space-x-2">
-                      {(u.idDocumentUrl ||
-                        u.portraitUrl ||
-                        u.licenseDocumentUrl ||
-                        u.verificationStatus === 'pending') && (
+                    <td className="px-4 py-3 text-end">
+                      <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
                         <button
                           type="button"
                           onClick={() => {
@@ -676,19 +721,34 @@ export const AdminDashboard: React.FC = () => {
                         >
                           {t.admin.viewDocuments}
                         </button>
-                      )}
-                      {u.verificationStatus !== 'approved' && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await adminSetUserVerification(u.uid, 'approved');
-                            showToast(t.driver.savedSuccess);
-                          }}
-                          className="px-2.5 py-1 text-xs font-semibold bg-[#0770E3] text-white rounded-lg cursor-pointer hover:bg-[#0559B8]"
-                        >
-                          {t.admin.approveDriver}
-                        </button>
-                      )}
+                        {u.verificationStatus !== 'approved' && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await adminSetUserVerification(u.uid, 'approved');
+                                showToast(t.driver.savedSuccess);
+                              } catch {
+                                showToast(t.errors.generic);
+                              }
+                            }}
+                            className="px-2.5 py-1 text-xs font-semibold bg-[#0770E3] text-white rounded-lg cursor-pointer hover:bg-[#0559B8]"
+                          >
+                            {t.admin.approveDriver}
+                          </button>
+                        )}
+                        {u.verificationStatus !== 'rejected' && u.uid !== firebaseUser?.uid && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRejectReason('');
+                              setInspectUser(u);
+                            }}
+                            className="px-2.5 py-1 text-xs font-semibold text-rose-700 border border-rose-200 rounded-lg cursor-pointer hover:bg-rose-50"
+                          >
+                            {t.admin.rejectDriver}
+                          </button>
+                        )}
                       {u.accountStatus !== 'active' && (
                         <button
                           type="button"
@@ -716,6 +776,7 @@ export const AdminDashboard: React.FC = () => {
                           </button>
                         </>
                       )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -895,7 +956,25 @@ export const AdminDashboard: React.FC = () => {
                             <div className="text-xs font-mono text-slate-500">{b.passengerPhone}</div>
                           )}
                         </td>
-                        <td className="px-4 py-3">{b.driverName || '-'}</td>
+                        <td className="px-4 py-3">
+                          <div>{b.driverName || '-'}</div>
+                          {(() => {
+                            const bPlate = formatIraqiPlateDisplay(
+                              b.vehiclePlate || b.plateDigits
+                                ? b
+                                : allTrips.find((tr) => tr.id === b.tripId),
+                              lang
+                            );
+                            return bPlate ? (
+                              <div
+                                dir="ltr"
+                                className="mt-1 inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-mono font-bold text-[#05203C] tabular-nums"
+                              >
+                                {bPlate}
+                              </div>
+                            ) : null;
+                          })()}
+                        </td>
                         <td className="px-4 py-3 text-xs">
                           {(depName || dstName) && (
                             <div className="font-semibold text-slate-800 mb-0.5">
@@ -1006,10 +1085,19 @@ export const AdminDashboard: React.FC = () => {
                       <div className="text-base font-bold text-slate-900">
                         {depName} → {dstName}
                       </div>
-                      <div className="text-xs text-slate-600">
-                        {t.tables.driver}: <span className="font-semibold text-slate-800">{tr.driverName}</span>
-                        {tr.vehicleModel ? ` · ${tr.vehicleModel}` : ''}
-                        {tr.vehiclePlate ? ` (${tr.vehiclePlate})` : ''}
+                      <div className="text-xs text-slate-600 flex flex-wrap items-center gap-2">
+                        <span>
+                          {t.tables.driver}: <span className="font-semibold text-slate-800">{tr.driverName}</span>
+                          {tr.vehicleModel ? ` · ${tr.vehicleModel}` : ''}
+                        </span>
+                        {formatIraqiPlateDisplay(tr, lang) && (
+                          <span
+                            dir="ltr"
+                            className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#F7F9FB] border border-[#CBD5E1] font-mono font-bold text-[#05203C] tabular-nums"
+                          >
+                            {formatIraqiPlateDisplay(tr, lang)}
+                          </span>
+                        )}
                       </div>
                       {tr.notes && <p className="text-xs text-slate-500">{tr.notes}</p>}
                     </div>
@@ -1389,204 +1477,411 @@ export const AdminDashboard: React.FC = () => {
       <AnimatedModalShell
         isOpen={Boolean(inspectDriver)}
         onClose={() => setInspectDriver(null)}
-        maxWidthClass="max-w-2xl"
+        maxWidthClass="max-w-3xl"
       >
-        {inspectDriver && (
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 relative shadow-[var(--shadow-elevated)]">
-            <button
-              type="button"
-              onClick={() => setInspectDriver(null)}
-              aria-label={t.common.close}
-              className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 absolute top-4 end-4 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <h3 className="text-lg font-bold text-slate-900">{inspectDriver.fullName}</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-              <div>
-                <div className="font-semibold mb-1">{t.auth.idCardPhoto}</div>
-                {inspectDriver.idDocumentUrl ? (
+        {inspectDriver && (() => {
+          const linkedUser = users.find((u) => u.uid === inspectDriver.uid);
+          const drvGov = governorates.find((g) => g.id === inspectDriver.governorateId);
+          const drvVehicles = vehicles.filter((v) => v.driverId === inspectDriver.uid);
+          const portraitSrc = linkedUser?.portraitUrl || linkedUser?.photoUrl || '';
+          const idFrontSrc =
+            inspectDriver.idFrontUrl ||
+            inspectDriver.idDocumentUrl ||
+            linkedUser?.idFrontUrl ||
+            linkedUser?.idDocumentUrl ||
+            '';
+          const idBackSrc = inspectDriver.idBackUrl || linkedUser?.idBackUrl || '';
+          const licFrontSrc =
+            inspectDriver.licenseFrontUrl ||
+            inspectDriver.licenseDocumentUrl ||
+            linkedUser?.licenseFrontUrl ||
+            linkedUser?.licenseDocumentUrl ||
+            '';
+          const licBackSrc = inspectDriver.licenseBackUrl || linkedUser?.licenseBackUrl || '';
+
+          const renderDocThumb = (src: string, label: string) => (
+            <div className="space-y-1.5">
+              <div className="text-xs font-semibold text-[#05203C]">{label}</div>
+              {src ? (
+                <button
+                  type="button"
+                  onClick={() => setZoomedPhoto({ url: src, title: label })}
+                  className="group relative block w-full rounded-xl border border-slate-200 bg-slate-50 overflow-hidden cursor-pointer"
+                >
                   <img
-                    src={inspectDriver.idDocumentUrl}
-                    alt={t.auth.idCardPhoto}
-                    className="rounded-xl border max-h-48 object-contain"
+                    src={src}
+                    alt={label}
+                    className="w-full h-44 object-contain bg-white"
                   />
-                ) : (
-                  <div className="p-6 bg-slate-50 rounded-xl text-slate-500">
-                    {t.common.noImageUploaded}
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="font-semibold mb-1">{t.auth.portraitPhoto}</div>
-                {users.find((u) => u.uid === inspectDriver.uid)?.portraitUrl ? (
-                  <img
-                    src={users.find((u) => u.uid === inspectDriver.uid)?.portraitUrl}
-                    alt={t.auth.portraitPhoto}
-                    className="rounded-xl border max-h-48 object-contain"
-                  />
-                ) : (
-                  <div className="p-6 bg-slate-50 rounded-xl text-slate-500">
-                    {t.common.noImageUploaded}
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="font-semibold mb-1">{t.auth.drivingLicensePhoto}</div>
-                {inspectDriver.licenseDocumentUrl ? (
-                  <img
-                    src={inspectDriver.licenseDocumentUrl}
-                    alt={t.auth.drivingLicensePhoto}
-                    className="rounded-xl border max-h-48 object-contain"
-                  />
-                ) : (
-                  <div className="p-6 bg-slate-50 rounded-xl text-slate-500">
-                    {t.common.noImageUploaded}
-                  </div>
-                )}
-              </div>
+                  <span className="absolute bottom-2 end-2 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#05203C]/80 text-white text-[11px] font-medium opacity-90 group-hover:opacity-100">
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </span>
+                </button>
+              ) : (
+                <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500">
+                  {t.common.noImageUploaded}
+                </div>
+              )}
             </div>
-            <input
-              type="text"
-              placeholder={t.driver.rejectReason}
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl"
-            />
-            <div className="flex justify-end gap-2">
+          );
+
+          return (
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 relative max-h-[90vh] overflow-y-auto shadow-[var(--shadow-elevated)]">
               <button
                 type="button"
-                onClick={async () => {
-                  await adminSetDriverVerification(inspectDriver.uid, 'rejected', rejectReason);
-                  setInspectDriver(null);
-                  setRejectReason('');
-                }}
-                className="px-4 py-2 text-xs font-semibold text-rose-700 border border-rose-200 rounded-xl cursor-pointer"
+                onClick={() => setInspectDriver(null)}
+                aria-label={t.common.close}
+                className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 absolute top-4 end-4 cursor-pointer"
               >
-                {t.admin.rejectDriver}
+                <X className="w-5 h-5" />
               </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  await adminSetDriverVerification(inspectDriver.uid, 'approved');
-                  setInspectDriver(null);
-                }}
-                className="px-4 py-2 text-xs font-semibold bg-[#0770E3] text-white rounded-xl cursor-pointer"
-              >
-                {t.admin.approveDriver}
-              </button>
+
+              <div className="space-y-1.5 pe-10">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-bold text-[#05203C]">{inspectDriver.fullName}</h3>
+                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#EFF6FF] text-[#0559B8] border border-[#BFDBFE]">
+                    {t.roles.driver}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-700">
+                    {t.statuses[inspectDriver.verificationStatus]}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                  {drvGov && <span>{getLocalizedName(drvGov)}</span>}
+                  <span className="font-mono" dir="ltr">
+                    {inspectDriver.phone || inspectPrivateInfo?.phone}
+                  </span>
+                  {inspectPrivateInfo?.email && (
+                    <span className="font-mono" dir="ltr">
+                      {inspectPrivateInfo.email}
+                    </span>
+                  )}
+                  {(drvVehicles[0]?.makeModel || linkedUser?.vehicleModel) && (
+                    <span>{drvVehicles[0]?.makeModel || linkedUser?.vehicleModel}</span>
+                  )}
+                  {formatIraqiPlateDisplay(drvVehicles[0] || linkedUser, lang) && (
+                    <span
+                      dir="ltr"
+                      className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#EFF6FF] border border-[#BFDBFE] font-mono font-bold text-[#05203C] tabular-nums"
+                    >
+                      {formatIraqiPlateDisplay(drvVehicles[0] || linkedUser, lang)}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Personal Portrait */}
+              {renderDocThumb(portraitSrc, t.auth.portraitPhoto)}
+
+              {/* Grouped National ID: Front & Back */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-[#05203C]">{t.auth.idGroupLabel}</span>
+                  <span className="text-[11px] font-semibold text-[#0770E3]">
+                    {t.auth.frontSideLabel} + {t.auth.backSideLabel}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {renderDocThumb(idFrontSrc, t.auth.idFrontPhoto)}
+                  {renderDocThumb(idBackSrc, t.auth.idBackPhoto)}
+                </div>
+              </div>
+
+              {/* Grouped Driving License: Front & Back */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-[#05203C]">{t.auth.licenseGroupLabel}</span>
+                  <span className="text-[11px] font-semibold text-[#0770E3]">
+                    {t.auth.frontSideLabel} + {t.auth.backSideLabel}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {renderDocThumb(licFrontSrc, t.auth.licenseFrontPhoto)}
+                  {renderDocThumb(licBackSrc, t.auth.licenseBackPhoto)}
+                </div>
+              </div>
+
+              <input
+                type="text"
+                placeholder={t.driver.rejectReason}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await adminSetDriverVerification(inspectDriver.uid, 'rejected', rejectReason);
+                      setInspectDriver(null);
+                      setRejectReason('');
+                      showToast(t.driver.savedSuccess);
+                    } catch {
+                      showToast(t.errors.generic);
+                    }
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-rose-700 border border-rose-200 rounded-xl hover:bg-rose-50 cursor-pointer"
+                >
+                  {t.admin.rejectDriver}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await adminSetDriverVerification(inspectDriver.uid, 'approved');
+                      setInspectDriver(null);
+                      setRejectReason('');
+                      showToast(t.driver.savedSuccess);
+                    } catch {
+                      showToast(t.errors.generic);
+                    }
+                  }}
+                  className="px-4 py-2 text-xs font-semibold bg-[#0770E3] text-white rounded-xl hover:bg-[#0559B8] cursor-pointer"
+                >
+                  {t.admin.approveDriver}
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </AnimatedModalShell>
 
       {/* ANIMATED PASSENGER/USER VERIFICATION MODAL */}
       <AnimatedModalShell
         isOpen={Boolean(inspectUser)}
         onClose={() => setInspectUser(null)}
-        maxWidthClass="max-w-xl"
+        maxWidthClass="max-w-3xl"
       >
-        {inspectUser && (
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 relative shadow-[var(--shadow-elevated)]">
-            <button
-              type="button"
-              onClick={() => setInspectUser(null)}
-              aria-label={t.common.close}
-              className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 absolute top-4 end-4 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <h3 className="text-lg font-bold text-slate-900">
-              {inspectUser.displayName} ({t.roles[inspectUser.role]})
-            </h3>
-            <div
-              className={`grid grid-cols-1 ${
-                inspectUser.role === 'driver' || inspectUser.licenseDocumentUrl
-                  ? 'sm:grid-cols-3'
-                  : 'sm:grid-cols-2'
-              } gap-4 text-xs`}
-            >
-              <div>
-                <div className="font-semibold mb-1">{t.auth.idCardPhoto}</div>
-                {inspectUser.idDocumentUrl ? (
+        {inspectUser && (() => {
+          const linkedDriver = drivers.find((d) => d.uid === inspectUser.uid);
+          const usrGov = governorates.find((g) => g.id === inspectUser.governorateId);
+          const isDriverAccount = inspectUser.role === 'driver' || Boolean(linkedDriver);
+          const portraitSrc = inspectUser.portraitUrl || inspectUser.photoUrl || '';
+          const idFrontSrc =
+            inspectUser.idFrontUrl ||
+            inspectUser.idDocumentUrl ||
+            linkedDriver?.idFrontUrl ||
+            linkedDriver?.idDocumentUrl ||
+            '';
+          const idBackSrc = inspectUser.idBackUrl || linkedDriver?.idBackUrl || '';
+          const licFrontSrc =
+            inspectUser.licenseFrontUrl ||
+            inspectUser.licenseDocumentUrl ||
+            linkedDriver?.licenseFrontUrl ||
+            linkedDriver?.licenseDocumentUrl ||
+            '';
+          const licBackSrc = inspectUser.licenseBackUrl || linkedDriver?.licenseBackUrl || '';
+
+          const renderUserDocThumb = (src: string, label: string) => (
+            <div className="space-y-1.5">
+              <div className="text-xs font-semibold text-[#05203C]">{label}</div>
+              {src ? (
+                <button
+                  type="button"
+                  onClick={() => setZoomedPhoto({ url: src, title: label })}
+                  className="group relative block w-full rounded-xl border border-slate-200 bg-slate-50 overflow-hidden cursor-pointer"
+                >
                   <img
-                    src={inspectUser.idDocumentUrl}
-                    alt={t.auth.idCardPhoto}
-                    className="rounded-xl border max-h-48 object-contain"
+                    src={src}
+                    alt={label}
+                    className="w-full h-44 object-contain bg-white"
                   />
-                ) : (
-                  <div className="p-6 bg-slate-50 rounded-xl text-slate-500">
-                    {t.common.noImageUploaded}
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="font-semibold mb-1">{t.auth.portraitPhoto}</div>
-                {inspectUser.portraitUrl ? (
-                  <img
-                    src={inspectUser.portraitUrl}
-                    alt={t.auth.portraitPhoto}
-                    className="rounded-xl border max-h-48 object-contain"
-                  />
-                ) : (
-                  <div className="p-6 bg-slate-50 rounded-xl text-slate-500">
-                    {t.common.noImageUploaded}
-                  </div>
-                )}
-              </div>
-              {(inspectUser.role === 'driver' || inspectUser.licenseDocumentUrl) && (
-                <div>
-                  <div className="font-semibold mb-1">{t.auth.drivingLicensePhoto}</div>
-                  {inspectUser.licenseDocumentUrl ? (
-                    <img
-                      src={inspectUser.licenseDocumentUrl}
-                      alt={t.auth.drivingLicensePhoto}
-                      className="rounded-xl border max-h-48 object-contain"
-                    />
-                  ) : (
-                    <div className="p-6 bg-slate-50 rounded-xl text-slate-500">
-                      {t.common.noImageUploaded}
-                    </div>
-                  )}
+                  <span className="absolute bottom-2 end-2 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#05203C]/80 text-white text-[11px] font-medium opacity-90 group-hover:opacity-100">
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </span>
+                </button>
+              ) : (
+                <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500">
+                  {t.common.noImageUploaded}
                 </div>
               )}
             </div>
-            <input
-              type="text"
-              placeholder={t.driver.rejectReason}
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl"
-            />
-            <div className="flex justify-end gap-2">
+          );
+
+          return (
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 relative max-h-[90vh] overflow-y-auto shadow-[var(--shadow-elevated)]">
               <button
                 type="button"
-                onClick={async () => {
-                  await adminSetUserVerification(inspectUser.uid, 'rejected', rejectReason);
-                  setInspectUser(null);
-                  setRejectReason('');
-                  showToast(t.driver.savedSuccess);
-                }}
-                className="px-4 py-2 text-xs font-semibold text-rose-700 border border-rose-200 rounded-xl cursor-pointer"
+                onClick={() => setInspectUser(null)}
+                aria-label={t.common.close}
+                className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 absolute top-4 end-4 cursor-pointer"
               >
-                {t.admin.rejectDriver}
+                <X className="w-5 h-5" />
               </button>
+
+              <div className="space-y-1.5 pe-10">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-bold text-[#05203C]">{inspectUser.displayName}</h3>
+                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#EFF6FF] text-[#0559B8] border border-[#BFDBFE]">
+                    {t.roles[inspectUser.role]}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-700">
+                    {inspectUser.verificationStatus === 'approved'
+                      ? t.auth.verifiedStatus
+                      : inspectUser.verificationStatus === 'rejected'
+                      ? t.auth.rejectedStatus
+                      : t.auth.pendingReview}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                  {usrGov && <span>{getLocalizedName(usrGov)}</span>}
+                  {(inspectPrivateInfo?.phone || linkedDriver?.phone) && (
+                    <span className="font-mono" dir="ltr">
+                      {inspectPrivateInfo?.phone || linkedDriver?.phone}
+                    </span>
+                  )}
+                  {inspectPrivateInfo?.email && (
+                    <span className="font-mono" dir="ltr">
+                      {inspectPrivateInfo.email}
+                    </span>
+                  )}
+                  <span className="font-mono">{inspectUser.referralCode}</span>
+                  {(inspectUser.vehicleModel ||
+                    formatIraqiPlateDisplay(
+                      inspectUser.plateNumber || inspectUser.plateDigits
+                        ? inspectUser
+                        : vehicles.find((v) => v.driverId === inspectUser.uid),
+                      lang
+                    )) && (
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      {inspectUser.vehicleModel && <span>{inspectUser.vehicleModel}</span>}
+                      {formatIraqiPlateDisplay(
+                        inspectUser.plateNumber || inspectUser.plateDigits
+                          ? inspectUser
+                          : vehicles.find((v) => v.driverId === inspectUser.uid),
+                        lang
+                      ) && (
+                        <span
+                          dir="ltr"
+                          className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#EFF6FF] border border-[#BFDBFE] font-mono font-bold text-[#05203C] tabular-nums"
+                        >
+                          {formatIraqiPlateDisplay(
+                            inspectUser.plateNumber || inspectUser.plateDigits
+                              ? inspectUser
+                              : vehicles.find((v) => v.driverId === inspectUser.uid),
+                            lang
+                          )}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Personal Portrait */}
+              {renderUserDocThumb(portraitSrc, t.auth.portraitPhoto)}
+
+              {/* Driver Front & Back ID + License Sections */}
+              {isDriverAccount ? (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-[#05203C]">{t.auth.idGroupLabel}</span>
+                      <span className="text-[11px] font-semibold text-[#0770E3]">
+                        {t.auth.frontSideLabel} + {t.auth.backSideLabel}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {renderUserDocThumb(idFrontSrc, t.auth.idFrontPhoto)}
+                      {renderUserDocThumb(idBackSrc, t.auth.idBackPhoto)}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-[#05203C]">{t.auth.licenseGroupLabel}</span>
+                      <span className="text-[11px] font-semibold text-[#0770E3]">
+                        {t.auth.frontSideLabel} + {t.auth.backSideLabel}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {renderUserDocThumb(licFrontSrc, t.auth.licenseFrontPhoto)}
+                      {renderUserDocThumb(licBackSrc, t.auth.licenseBackPhoto)}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                idFrontSrc && renderUserDocThumb(idFrontSrc, t.auth.idCardPhoto)
+              )}
+
+              <input
+                type="text"
+                placeholder={t.driver.rejectReason}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await adminSetUserVerification(inspectUser.uid, 'rejected', rejectReason);
+                      setInspectUser(null);
+                      setRejectReason('');
+                      showToast(t.driver.savedSuccess);
+                    } catch {
+                      showToast(t.errors.generic);
+                    }
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-rose-700 border border-rose-200 rounded-xl hover:bg-rose-50 cursor-pointer"
+                >
+                  {t.admin.rejectDriver}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await adminSetUserVerification(inspectUser.uid, 'approved');
+                      setInspectUser(null);
+                      setRejectReason('');
+                      showToast(t.driver.savedSuccess);
+                    } catch {
+                      showToast(t.errors.generic);
+                    }
+                  }}
+                  className="px-4 py-2 text-xs font-semibold bg-[#0770E3] text-white rounded-xl hover:bg-[#0559B8] cursor-pointer"
+                >
+                  {t.admin.approveDriver}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </AnimatedModalShell>
+
+      {/* FULL-SCREEN DOCUMENT ZOOM LIGHTBOX */}
+      {zoomedPhoto && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setZoomedPhoto(null)}
+        >
+          <div
+            className="relative max-w-4xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 bg-[#05203C] text-white">
+              <span className="text-sm font-bold">{zoomedPhoto.title}</span>
               <button
                 type="button"
-                onClick={async () => {
-                  await adminSetUserVerification(inspectUser.uid, 'approved');
-                  setInspectUser(null);
-                  setRejectReason('');
-                  showToast(t.driver.savedSuccess);
-                }}
-                className="px-4 py-2 text-xs font-semibold bg-[#0770E3] text-white rounded-xl cursor-pointer"
+                onClick={() => setZoomedPhoto(null)}
+                aria-label={t.common.close}
+                className="p-1.5 rounded-lg hover:bg-white/15 cursor-pointer"
               >
-                {t.admin.approveDriver}
+                <X className="w-5 h-5" />
               </button>
             </div>
+            <div className="p-4 bg-slate-100 flex items-center justify-center max-h-[80vh]">
+              <img
+                src={zoomedPhoto.url}
+                alt={zoomedPhoto.title}
+                className="max-h-[75vh] w-auto object-contain rounded-lg"
+              />
+            </div>
           </div>
-        )}
-      </AnimatedModalShell>
+        </div>
+      )}
     </div>
   );
 };

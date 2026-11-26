@@ -23,6 +23,7 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
+import { formatIraqiPlateDisplay } from '../data/iraqReferenceData';
 import { uploadVerificationImage } from '../services/imageUtils';
 import {
   cancelBookingTransaction,
@@ -112,7 +113,6 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [profLang, setProfLang] = useState<LanguageCode>(userProfile?.preferredLanguage || lang);
 
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
-  const [resubmitIdFile, setResubmitIdFile] = useState<File | null>(null);
   const [resubmitPortraitFile, setResubmitPortraitFile] = useState<File | null>(null);
   const [resubmittingDocs, setResubmittingDocs] = useState(false);
 
@@ -219,7 +219,13 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const handleCopyShare = async (booking: Booking) => {
     const dep = getLocalizedName(governorates.find((g) => g.id === booking.departureGovId));
     const dst = getLocalizedName(governorates.find((g) => g.id === booking.destinationGovId));
-    const text = `${t.brand}: ${dep} → ${dst} | ${booking.departureDate} ${booking.departureTime} | ${booking.driverName || ''} (${booking.driverPhone || ''}) | ${booking.shareToken || booking.id}`;
+    const liveTrip = tripMap.get(booking.tripId);
+    const formattedPlate = formatIraqiPlateDisplay(
+      booking.vehiclePlate || booking.plateDigits ? booking : liveTrip,
+      lang
+    );
+    const platePart = formattedPlate ? ` | ${formattedPlate}` : '';
+    const text = `${t.brand}: ${dep} → ${dst} | ${booking.departureDate} ${booking.departureTime} | ${booking.driverName || ''} (${booking.driverPhone || ''})${platePart} | ${booking.shareToken || booking.id}`;
     await navigator.clipboard.writeText(text);
     notify('ok', t.passenger.copiedShareText);
   };
@@ -305,22 +311,20 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
   const handleResubmitDocs = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resubmitIdFile || !resubmitPortraitFile) {
+    if (!resubmitPortraitFile) {
       notify('err', t.auth.missingRequiredFields);
       return;
     }
     setResubmittingDocs(true);
     try {
       const ts = Date.now();
-      const [idUrl, portraitUrl] = await Promise.all([
-        uploadVerificationImage(resubmitIdFile, `verification/${firebaseUser.uid}/id_resubmit_${ts}`),
-        uploadVerificationImage(resubmitPortraitFile, `verification/${firebaseUser.uid}/portrait_resubmit_${ts}`),
-      ]);
+      const portraitUrl = await uploadVerificationImage(
+        resubmitPortraitFile,
+        `verifications/passengers/${firebaseUser.uid}/portrait_resubmit_${ts}.jpg`
+      );
       await resubmitPassengerVerificationDocs(firebaseUser.uid, {
-        idDocumentUrl: idUrl,
         portraitUrl,
       });
-      setResubmitIdFile(null);
       setResubmitPortraitFile(null);
       notify('ok', t.auth.docsResubmitted);
     } catch {
@@ -364,20 +368,8 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            <label className="flex items-center justify-between gap-2 px-3 py-2.5 bg-white border border-dashed border-rose-300 rounded-xl text-xs cursor-pointer hover:bg-rose-50/60">
-              <span className="truncate font-medium text-slate-800">
-                {resubmitIdFile ? resubmitIdFile.name : t.auth.idCardPhoto}
-              </span>
-              <Upload className="w-4 h-4 text-rose-700 shrink-0" />
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => setResubmitIdFile(e.target.files?.[0] || null)}
-              />
-            </label>
-            <label className="flex items-center justify-between gap-2 px-3 py-2.5 bg-white border border-dashed border-rose-300 rounded-xl text-xs cursor-pointer hover:bg-rose-50/60">
+          <div className="pt-1">
+            <label className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-white border border-dashed border-rose-300 rounded-xl text-xs cursor-pointer hover:bg-rose-50/60">
               <span className="truncate font-medium text-slate-800">
                 {resubmitPortraitFile ? resubmitPortraitFile.name : t.auth.portraitPhoto}
               </span>
@@ -393,7 +385,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={resubmittingDocs || !resubmitIdFile || !resubmitPortraitFile}
+              disabled={resubmittingDocs || !resubmitPortraitFile}
               className="px-4 py-2 text-xs font-semibold bg-rose-700 text-white rounded-xl hover:bg-rose-800 disabled:opacity-50 cursor-pointer"
             >
               {resubmittingDocs ? t.auth.submitting : t.auth.resubmitDocsBtn}
@@ -490,6 +482,22 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                             ? ` (${bk.selectedSeats.map((s) => seatLabelMap[s]).join('، ')})`
                             : ''}
                         </p>
+                        {(() => {
+                          const bkPlate = formatIraqiPlateDisplay(
+                            bk.vehiclePlate || bk.plateDigits ? bk : liveTrip,
+                            lang
+                          );
+                          return bkPlate ? (
+                            <div className="mt-1.5">
+                              <span
+                                dir="ltr"
+                                className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-[#F7F9FB] border border-[#CBD5E1] text-[11px] font-mono font-bold text-[#05203C] tabular-nums"
+                              >
+                                {bkPlate}
+                              </span>
+                            </div>
+                          ) : null;
+                        })()}
                         {bk.includeCargo && (
                           <div className="mt-2 inline-flex flex-wrap items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1 text-xs">
                             <Package className="w-3.5 h-3.5 text-emerald-700" />

@@ -234,6 +234,11 @@ export interface TranslationDictionary {
     vehicleModelPlaceholder: string;
     vehicleYear: string;
     plateNumber: string;
+    plateSectionGov: string;
+    plateSectionLetter: string;
+    plateSectionDigits: string;
+    plateFormatHint: string;
+    platePreviewLabel: string;
     vehicleColor: string;
     passengerCapacity: string;
     vehiclePhoto: string;
@@ -262,8 +267,16 @@ export interface TranslationDictionary {
     requiredDocsHintPassenger: string;
     requiredDocsHintDriver: string;
     idCardPhoto: string;
+    idGroupLabel: string;
+    idFrontPhoto: string;
+    idBackPhoto: string;
     portraitPhoto: string;
     drivingLicensePhoto: string;
+    licenseGroupLabel: string;
+    licenseFrontPhoto: string;
+    licenseBackPhoto: string;
+    frontSideLabel: string;
+    backSideLabel: string;
     requiredTag: string;
     replacePhoto: string;
     removePhoto: string;
@@ -977,6 +990,11 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       vehicleModelPlaceholder: 'تويوتا كامري / هيونداي ستاريا',
       vehicleYear: 'سنة الصنع',
       plateNumber: 'رقم اللوحة',
+      plateSectionGov: 'المحافظة والرمز',
+      plateSectionLetter: 'الحرف',
+      plateSectionDigits: 'الرقم',
+      plateFormatHint: 'مثال: 22 أربيل | H | 12345',
+      platePreviewLabel: 'معاينة اللوحة',
       vehicleColor: 'اللون',
       passengerCapacity: 'سعة الركاب (المقاعد)',
       vehiclePhoto: 'صورة المركبة',
@@ -1002,11 +1020,19 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       signingIn: 'جاري تسجيل الدخول...',
       orContinueWith: 'أو المتابعة باستخدام Google',
       requiredDocsTitle: 'الصور والوثائق الإلزامية للتوثيق',
-      requiredDocsHintPassenger: 'لإتمام التسجيل كمسافر، يجب رفع صورتين: صورة الهوية وصورتك الشخصية.',
-      requiredDocsHintDriver: 'لإتمام التسجيل كسائق، يجب رفع 3 صور: صورة الهوية، صورتك الشخصية، وصورة إجازة السوق.',
+      requiredDocsHintPassenger: 'لإتمام التسجيل كمسافر، لا يلزم رفع الهوية — فقط ارفع صورتك الشخصية.',
+      requiredDocsHintDriver: 'لإتمام التسجيل كسائق، يجب رفع 5 صور: صورتك الشخصية، الوجه والظهر للهوية الوطنية / البطاقة الموحدة، والوجه والظهر لإجازة السوق.',
       idCardPhoto: 'صورة الهوية',
+      idGroupLabel: 'الهوية الوطنية / البطاقة الموحدة',
+      idFrontPhoto: 'الوجه — الهوية الوطنية',
+      idBackPhoto: 'الظهر — الهوية الوطنية',
       portraitPhoto: 'صورتك الشخصية',
       drivingLicensePhoto: 'صورة إجازة السوق',
+      licenseGroupLabel: 'إجازة السوق',
+      licenseFrontPhoto: 'الوجه — إجازة السوق',
+      licenseBackPhoto: 'الظهر — إجازة السوق',
+      frontSideLabel: 'الوجه',
+      backSideLabel: 'الظهر',
       requiredTag: 'إلزامي',
       replacePhoto: 'تغيير',
       removePhoto: 'إزالة',
@@ -1301,8 +1327,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       totalBookings: 'إجمالي الحجوزات',
       activeTrips: 'الرحلات النشطة',
       pendingDriversCount: 'طلبات سائقين بانتظار المراجعة',
-      approveDriver: 'موافقة وتوثيق',
-      rejectDriver: 'رفض الطلب',
+      approveDriver: 'موافقة',
+      rejectDriver: 'رفض',
       suspendDriver: 'تعليق السائق',
       viewDocuments: 'معاينة الوثائق',
       suspendUser: 'تعليق',
@@ -1739,6 +1765,11 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       vehicleModelPlaceholder: 'تۆیۆتا کامری / هیوندای ستاریا',
       vehicleYear: 'ساڵی دروستکردن',
       plateNumber: 'ژمارەی تابلۆ',
+      plateSectionGov: 'پارێزگا و کۆد',
+      plateSectionLetter: 'پیت',
+      plateSectionDigits: 'ژمارە',
+      plateFormatHint: 'نموونە: 22 هەولێر | H | 12345',
+      platePreviewLabel: 'پێشبینینی تابلۆ',
       vehicleColor: 'ڕەنگ',
       passengerCapacity: 'ژمارەی کورسی سەرنشین',
       vehiclePhoto: 'وێنەی ئۆتۆمبێل',
@@ -1764,11 +1795,19 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       signingIn: 'چوونەژوورەوە...',
       orContinueWith: 'یان بەردەوامبە بە Google',
       requiredDocsTitle: 'بەڵگەنامە و وێنە داواکراوەکان',
-      requiredDocsHintPassenger: 'بۆ تەواوکردنی تۆمارکردن، پێویستە هەردوو وێنە باربکەیت: وێنەی ناسنامە و وێنەی کەسیت.',
-      requiredDocsHintDriver: 'بۆ تۆمارکردن وەک شۆفێر، پێویستە هەر ٣ وێنە باربکەیت: ناسنامە، وێنەی کەسی، و مۆڵەتی شۆفێری.',
+      requiredDocsHintPassenger: 'بۆ تۆمارکردن وەک گەشتیار، پێویست بە بارکردنی ناسنامە ناکات — تەنها وێنەی کەسیت باربکە.',
+      requiredDocsHintDriver: 'بۆ تۆمارکردن وەک شۆفێر، ٥ وێنە پێویستە: وێنەی کەسی، پێشەوە و پشتەوەی ناسنامە، و پێشەوە و پشتەوەی مۆڵەتی شۆفێری.',
       idCardPhoto: 'وێنەی ناسنامە',
+      idGroupLabel: 'کارتی نیشتمانی / ناسنامە',
+      idFrontPhoto: 'پێشەوە — کارتی نیشتمانی',
+      idBackPhoto: 'پشتەوە — کارتی نیشتمانی',
       portraitPhoto: 'وێنەی کەسیت',
       drivingLicensePhoto: 'وێنەی مۆڵەتی شۆفێری',
+      licenseGroupLabel: 'مۆڵەتی شۆفێری',
+      licenseFrontPhoto: 'پێشەوە — مۆڵەتی شۆفێری',
+      licenseBackPhoto: 'پشتەوە — مۆڵەتی شۆفێری',
+      frontSideLabel: 'پێشەوە',
+      backSideLabel: 'پشتەوە',
       requiredTag: 'پێویستە',
       replacePhoto: 'گۆڕین',
       removePhoto: 'سڕینەوە',
@@ -2501,6 +2540,11 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       vehicleModelPlaceholder: 'Toyota Camry / Hyundai Staria',
       vehicleYear: 'Model Year',
       plateNumber: 'Plate Number',
+      plateSectionGov: 'Governorate & Code',
+      plateSectionLetter: 'Letter',
+      plateSectionDigits: 'Number',
+      plateFormatHint: 'Example: 22 Erbil | H | 12345',
+      platePreviewLabel: 'Plate Preview',
       vehicleColor: 'Color',
       passengerCapacity: 'Passenger Seat Capacity',
       vehiclePhoto: 'Vehicle Photo',
@@ -2526,11 +2570,19 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       signingIn: 'Signing in...',
       orContinueWith: 'Or continue with Google',
       requiredDocsTitle: 'Mandatory Verification Photos',
-      requiredDocsHintPassenger: 'Both photos are required to register: your National ID and personal portrait.',
-      requiredDocsHintDriver: 'All 3 photos are required to register: National ID, personal portrait, and driving license.',
+      requiredDocsHintPassenger: 'No National ID upload is required for passengers — only your personal portrait.',
+      requiredDocsHintDriver: 'All 5 photos are required for drivers: personal portrait, National ID (front & back), and driving license (front & back).',
       idCardPhoto: 'National ID Photo',
+      idGroupLabel: 'National ID / Unified Card',
+      idFrontPhoto: 'Front — National ID',
+      idBackPhoto: 'Back — National ID',
       portraitPhoto: 'Personal Portrait',
       drivingLicensePhoto: 'Driving License Photo',
+      licenseGroupLabel: 'Driving License',
+      licenseFrontPhoto: 'Front — Driving License',
+      licenseBackPhoto: 'Back — Driving License',
+      frontSideLabel: 'Front',
+      backSideLabel: 'Back',
       requiredTag: 'Required',
       replacePhoto: 'Replace',
       removePhoto: 'Remove',
@@ -2825,7 +2877,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       totalBookings: 'Total Bookings',
       activeTrips: 'Active Trips',
       pendingDriversCount: 'Pending Driver Applications',
-      approveDriver: 'Approve Driver',
+      approveDriver: 'Approve',
       rejectDriver: 'Reject',
       suspendDriver: 'Suspend',
       viewDocuments: 'Inspect Documents',

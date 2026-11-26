@@ -76,7 +76,7 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'displayName', 'role', 'accountStatus', 'preferredLanguage', 'referralCode', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['uid', 'displayName', 'role', 'accountStatus', 'verificationStatus', 'rejectionReason', 'preferredLanguage', 'referralCode', 'referredBy', 'governorateId', 'photoUrl', 'idDocumentUrl', 'portraitUrl', 'licenseDocumentUrl', 'vehicleModel', 'plateNumber', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'role', 'accountStatus', 'verificationStatus', 'rejectionReason', 'preferredLanguage', 'referralCode', 'referredBy', 'governorateId', 'photoUrl', 'idDocumentUrl', 'idFrontUrl', 'idBackUrl', 'portraitUrl', 'licenseDocumentUrl', 'licenseFrontUrl', 'licenseBackUrl', 'vehicleModel', 'plateNumber', 'plateGovCode', 'plateLetter', 'plateDigits', 'createdAt', 'updatedAt']) &&
         isValidId(data.uid) &&
         isValidStr(data.displayName, 2, 100) &&
         data.role in ['passenger', 'driver', 'admin'] &&
@@ -87,12 +87,19 @@ service cloud.firestore {
         isValidStr(data.referralCode, 4, 24) &&
         (!('referredBy' in data) || isValidStr(data.referredBy, 1, 128)) &&
         (!('governorateId' in data) || isValidStr(data.governorateId, 1, 64)) &&
-        (!('photoUrl' in data) || isValidStr(data.photoUrl, 0, 2000)) &&
-        (!('idDocumentUrl' in data) || isValidStr(data.idDocumentUrl, 0, 2000)) &&
-        (!('portraitUrl' in data) || isValidStr(data.portraitUrl, 0, 2000)) &&
-        (!('licenseDocumentUrl' in data) || isValidStr(data.licenseDocumentUrl, 0, 2000)) &&
+        (!('photoUrl' in data) || isValidStr(data.photoUrl, 0, 220000)) &&
+        (!('idDocumentUrl' in data) || isValidStr(data.idDocumentUrl, 0, 220000)) &&
+        (!('idFrontUrl' in data) || isValidStr(data.idFrontUrl, 0, 220000)) &&
+        (!('idBackUrl' in data) || isValidStr(data.idBackUrl, 0, 220000)) &&
+        (!('portraitUrl' in data) || isValidStr(data.portraitUrl, 0, 220000)) &&
+        (!('licenseDocumentUrl' in data) || isValidStr(data.licenseDocumentUrl, 0, 220000)) &&
+        (!('licenseFrontUrl' in data) || isValidStr(data.licenseFrontUrl, 0, 220000)) &&
+        (!('licenseBackUrl' in data) || isValidStr(data.licenseBackUrl, 0, 220000)) &&
         (!('vehicleModel' in data) || isValidStr(data.vehicleModel, 0, 100)) &&
-        (!('plateNumber' in data) || isValidStr(data.plateNumber, 0, 40)) &&
+        (!('plateNumber' in data) || isValidStr(data.plateNumber, 0, 48)) &&
+        (!('plateGovCode' in data) || isValidStr(data.plateGovCode, 0, 8)) &&
+        (!('plateLetter' in data) || isValidStr(data.plateLetter, 0, 2)) &&
+        (!('plateDigits' in data) || isValidStr(data.plateDigits, 0, 12)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -109,7 +116,7 @@ service cloud.firestore {
 
     function isValidDriver(data) {
       return data.keys().hasAll(['uid', 'fullName', 'phone', 'governorateId', 'licenseNumber', 'nationalIdNumber', 'verificationStatus', 'isAvailable', 'ratingAvg', 'ratingCount', 'completedTripsCount', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['uid', 'fullName', 'phone', 'governorateId', 'homeGarageId', 'licenseNumber', 'nationalIdNumber', 'idDocumentUrl', 'licenseDocumentUrl', 'operatingGovIds', 'verificationStatus', 'rejectionReason', 'isAvailable', 'ratingAvg', 'ratingCount', 'completedTripsCount', 'bio', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'fullName', 'phone', 'governorateId', 'homeGarageId', 'licenseNumber', 'nationalIdNumber', 'idDocumentUrl', 'idFrontUrl', 'idBackUrl', 'licenseDocumentUrl', 'licenseFrontUrl', 'licenseBackUrl', 'operatingGovIds', 'verificationStatus', 'rejectionReason', 'isAvailable', 'ratingAvg', 'ratingCount', 'completedTripsCount', 'bio', 'createdAt', 'updatedAt']) &&
         isValidId(data.uid) &&
         isValidStr(data.fullName, 2, 100) &&
         isValidStr(data.phone, 7, 24) &&
@@ -118,7 +125,11 @@ service cloud.firestore {
         isValidStr(data.licenseNumber, 3, 64) &&
         isValidStr(data.nationalIdNumber, 4, 64) &&
         (!('idDocumentUrl' in data) || isValidStr(data.idDocumentUrl, 0, 220000)) &&
+        (!('idFrontUrl' in data) || isValidStr(data.idFrontUrl, 0, 220000)) &&
+        (!('idBackUrl' in data) || isValidStr(data.idBackUrl, 0, 220000)) &&
         (!('licenseDocumentUrl' in data) || isValidStr(data.licenseDocumentUrl, 0, 220000)) &&
+        (!('licenseFrontUrl' in data) || isValidStr(data.licenseFrontUrl, 0, 220000)) &&
+        (!('licenseBackUrl' in data) || isValidStr(data.licenseBackUrl, 0, 220000)) &&
         (!('operatingGovIds' in data) || (data.operatingGovIds is list && data.operatingGovIds.size() <= 19)) &&
         data.verificationStatus in ['pending', 'approved', 'rejected', 'suspended'] &&
         (!('rejectionReason' in data) || isValidStr(data.rejectionReason, 0, 400)) &&
@@ -152,11 +163,14 @@ service cloud.firestore {
 
     function isValidVehicle(data) {
       return data.keys().hasAll(['driverId', 'makeModel', 'year', 'plateNumber', 'passengerCapacity', 'verified', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['driverId', 'makeModel', 'year', 'plateNumber', 'color', 'passengerCapacity', 'hasAc', 'hasWifi', 'photoUrl', 'verified', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['driverId', 'makeModel', 'year', 'plateNumber', 'plateGovCode', 'plateLetter', 'plateDigits', 'color', 'passengerCapacity', 'hasAc', 'hasWifi', 'photoUrl', 'verified', 'createdAt', 'updatedAt']) &&
         isValidId(data.driverId) &&
         isValidStr(data.makeModel, 2, 100) &&
         data.year is number && data.year >= 1995 && data.year <= 2030 &&
-        isValidStr(data.plateNumber, 2, 40) &&
+        isValidStr(data.plateNumber, 2, 48) &&
+        (!('plateGovCode' in data) || isValidStr(data.plateGovCode, 0, 8)) &&
+        (!('plateLetter' in data) || isValidStr(data.plateLetter, 0, 2)) &&
+        (!('plateDigits' in data) || isValidStr(data.plateDigits, 0, 12)) &&
         (!('color' in data) || isValidStr(data.color, 0, 40)) &&
         data.passengerCapacity is number && data.passengerCapacity >= 1 && data.passengerCapacity <= 20 &&
         (!('hasAc' in data) || data.hasAc is bool) &&
@@ -218,7 +232,7 @@ service cloud.firestore {
 
     function isValidTrip(data) {
       return data.keys().hasAll(['driverId', 'driverName', 'vehicleId', 'vehicleModel', 'departureGovId', 'destinationGovId', 'departureGarageId', 'destinationGarageId', 'departureDate', 'departureTime', 'pricePerSeatIqd', 'totalSeats', 'availableSeats', 'confirmedSeatsCount', 'status', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['driverId', 'driverName', 'driverRating', 'driverCompletedTrips', 'driverVerified', 'vehicleId', 'vehicleModel', 'vehiclePlate', 'vehiclePhotoUrl', 'departureGovId', 'destinationGovId', 'departureGarageId', 'destinationGarageId', 'departureDate', 'departureTime', 'estimatedDurationMin', 'pricePerSeatIqd', 'fullCarPriceIqd', 'seatPrices', 'cargoEnabled', 'cargoPriceIqd', 'originalPriceIqd', 'isSpecialOffer', 'totalSeats', 'availableSeats', 'confirmedSeatsCount', 'bookedSeats', 'status', 'notes', 'liveTrackingEnabled', 'liveLat', 'liveLng', 'lastBookingId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['driverId', 'driverName', 'driverRating', 'driverCompletedTrips', 'driverVerified', 'vehicleId', 'vehicleModel', 'vehiclePlate', 'plateGovCode', 'plateLetter', 'plateDigits', 'vehiclePhotoUrl', 'departureGovId', 'destinationGovId', 'departureGarageId', 'destinationGarageId', 'departureDate', 'departureTime', 'estimatedDurationMin', 'pricePerSeatIqd', 'fullCarPriceIqd', 'seatPrices', 'cargoEnabled', 'cargoPriceIqd', 'originalPriceIqd', 'isSpecialOffer', 'totalSeats', 'availableSeats', 'confirmedSeatsCount', 'bookedSeats', 'status', 'notes', 'liveTrackingEnabled', 'liveLat', 'liveLng', 'lastBookingId', 'createdAt', 'updatedAt']) &&
         isValidId(data.driverId) &&
         isValidStr(data.driverName, 2, 100) &&
         (!('driverRating' in data) || (data.driverRating is number && data.driverRating >= 0 && data.driverRating <= 5)) &&
@@ -226,7 +240,10 @@ service cloud.firestore {
         (!('driverVerified' in data) || data.driverVerified is bool) &&
         isValidId(data.vehicleId) &&
         isValidStr(data.vehicleModel, 2, 100) &&
-        (!('vehiclePlate' in data) || isValidStr(data.vehiclePlate, 0, 40)) &&
+        (!('vehiclePlate' in data) || isValidStr(data.vehiclePlate, 0, 48)) &&
+        (!('plateGovCode' in data) || isValidStr(data.plateGovCode, 0, 8)) &&
+        (!('plateLetter' in data) || isValidStr(data.plateLetter, 0, 2)) &&
+        (!('plateDigits' in data) || isValidStr(data.plateDigits, 0, 12)) &&
         (!('vehiclePhotoUrl' in data) || isValidStr(data.vehiclePhotoUrl, 0, 220000)) &&
         isValidId(data.departureGovId) &&
         isValidId(data.destinationGovId) &&
@@ -288,7 +305,7 @@ service cloud.firestore {
 
     function isValidBooking(data) {
       return data.keys().hasAll(['tripId', 'passengerId', 'passengerName', 'driverId', 'seatsCount', 'seatPriceIqd', 'totalPriceIqd', 'pointsRedeemed', 'isFreeTrip', 'status', 'pointsAwarded', 'reviewSubmitted', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['tripId', 'passengerId', 'passengerName', 'passengerPhone', 'driverId', 'driverName', 'driverPhone', 'departureGovId', 'destinationGovId', 'departureDate', 'departureTime', 'seatsCount', 'selectedSeats', 'isFullCar', 'seatPriceIqd', 'seatsSubtotalIqd', 'includeCargo', 'cargoFeeIqd', 'cargoNotes', 'totalPriceIqd', 'pointsRedeemed', 'isFreeTrip', 'isRoundTrip', 'returnTripId', 'passengerNotes', 'useCustomDropOff', 'customDropOffFeeIqd', 'customDropOffLat', 'customDropOffLng', 'customDropOffAddress', 'status', 'cancellationReason', 'rescheduleRequestedDate', 'pointsAwarded', 'referralRewarded', 'reviewSubmitted', 'shareToken', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['tripId', 'passengerId', 'passengerName', 'passengerPhone', 'driverId', 'driverName', 'driverPhone', 'vehiclePlate', 'plateGovCode', 'plateLetter', 'plateDigits', 'departureGovId', 'destinationGovId', 'departureDate', 'departureTime', 'seatsCount', 'selectedSeats', 'isFullCar', 'seatPriceIqd', 'seatsSubtotalIqd', 'includeCargo', 'cargoFeeIqd', 'cargoNotes', 'totalPriceIqd', 'pointsRedeemed', 'isFreeTrip', 'isRoundTrip', 'returnTripId', 'passengerNotes', 'useCustomDropOff', 'customDropOffFeeIqd', 'customDropOffLat', 'customDropOffLng', 'customDropOffAddress', 'status', 'cancellationReason', 'rescheduleRequestedDate', 'pointsAwarded', 'referralRewarded', 'reviewSubmitted', 'shareToken', 'createdAt', 'updatedAt']) &&
         isValidId(data.tripId) &&
         isValidId(data.passengerId) &&
         isValidStr(data.passengerName, 2, 100) &&
@@ -296,6 +313,10 @@ service cloud.firestore {
         isValidId(data.driverId) &&
         (!('driverName' in data) || isValidStr(data.driverName, 0, 100)) &&
         (!('driverPhone' in data) || isValidStr(data.driverPhone, 0, 24)) &&
+        (!('vehiclePlate' in data) || isValidStr(data.vehiclePlate, 0, 48)) &&
+        (!('plateGovCode' in data) || isValidStr(data.plateGovCode, 0, 8)) &&
+        (!('plateLetter' in data) || isValidStr(data.plateLetter, 0, 2)) &&
+        (!('plateDigits' in data) || isValidStr(data.plateDigits, 0, 12)) &&
         (!('departureGovId' in data) || isValidStr(data.departureGovId, 0, 64)) &&
         (!('destinationGovId' in data) || isValidStr(data.destinationGovId, 0, 64)) &&
         (!('departureDate' in data) || isValidStr(data.departureDate, 0, 20)) &&
@@ -525,7 +546,7 @@ service cloud.firestore {
             incoming().referralCode == existing().referralCode &&
             incoming().verificationStatus == 'pending' &&
             (!('rejectionReason' in incoming()) || incoming().rejectionReason == '') &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['idDocumentUrl', 'portraitUrl', 'photoUrl', 'licenseDocumentUrl', 'verificationStatus', 'rejectionReason', 'updatedAt']))
+            incoming().diff(existing()).affectedKeys().hasOnly(['idDocumentUrl', 'idFrontUrl', 'idBackUrl', 'portraitUrl', 'photoUrl', 'licenseDocumentUrl', 'licenseFrontUrl', 'licenseBackUrl', 'verificationStatus', 'rejectionReason', 'updatedAt']))
         );
       allow delete: if false;
 
@@ -570,7 +591,7 @@ service cloud.firestore {
             incoming().ratingCount == existing().ratingCount &&
             incoming().completedTripsCount >= existing().completedTripsCount &&
             incoming().completedTripsCount <= existing().completedTripsCount + 1 &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phone', 'governorateId', 'homeGarageId', 'licenseNumber', 'nationalIdNumber', 'idDocumentUrl', 'licenseDocumentUrl', 'operatingGovIds', 'verificationStatus', 'rejectionReason', 'isAvailable', 'bio', 'completedTripsCount', 'updatedAt']))
+            incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phone', 'governorateId', 'homeGarageId', 'licenseNumber', 'nationalIdNumber', 'idDocumentUrl', 'idFrontUrl', 'idBackUrl', 'licenseDocumentUrl', 'licenseFrontUrl', 'licenseBackUrl', 'operatingGovIds', 'verificationStatus', 'rejectionReason', 'isAvailable', 'bio', 'completedTripsCount', 'updatedAt']))
         );
       allow delete: if false;
     }
@@ -619,7 +640,7 @@ service cloud.firestore {
           isAdmin() ||
           (isOwner(existing().driverId) &&
             incoming().verified == existing().verified &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['makeModel', 'year', 'plateNumber', 'color', 'passengerCapacity', 'hasAc', 'hasWifi', 'photoUrl', 'updatedAt']))
+            incoming().diff(existing()).affectedKeys().hasOnly(['makeModel', 'year', 'plateNumber', 'plateGovCode', 'plateLetter', 'plateDigits', 'color', 'passengerCapacity', 'hasAc', 'hasWifi', 'photoUrl', 'updatedAt']))
         );
       allow delete: if isValidId(vehicleId) && (isAdmin() || isOwner(existing().driverId));
     }

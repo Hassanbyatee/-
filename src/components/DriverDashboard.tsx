@@ -27,7 +27,15 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
-import { RAFIDAIN_TRANSFER_NUMBER, WEEKLY_DRIVER_COMMISSION_IQD } from '../data/iraqReferenceData';
+import {
+  RAFIDAIN_TRANSFER_NUMBER,
+  WEEKLY_DRIVER_COMMISSION_IQD,
+  formatIraqiPlate,
+  formatIraqiPlateDisplay,
+  getPlateGovByGovId,
+  parseIraqiPlate,
+} from '../data/iraqReferenceData';
+import { IraqiPlateInput } from './IraqiPlateInput';
 import { compressImageToDataUrl, uploadVerificationImage } from '../services/imageUtils';
 import {
   acceptBookingTransaction,
@@ -65,7 +73,7 @@ import {
 type DriverTab = 'overview' | 'requests' | 'trips' | 'publish' | 'docs' | 'earnings' | 'reviews';
 
 export const DriverDashboard: React.FC = () => {
-  const { getLocalizedName, formatIqd, t } = useI18n();
+  const { lang, getLocalizedName, formatIqd, t } = useI18n();
   const { firebaseUser, userProfile, driverProfile, governorates, garages, settings } = useAuth();
 
   const [tab, setTab] = useState<DriverTab>('trips');
@@ -114,12 +122,16 @@ export const DriverDashboard: React.FC = () => {
   const [homeGarageId, setHomeGarageId] = useState('');
   const [licenseNo, setLicenseNo] = useState('');
   const [natIdNo, setNatIdNo] = useState('');
-  const [idDocUrl, setIdDocUrl] = useState('');
-  const [licDocUrl, setLicDocUrl] = useState('');
+  const [idFrontUrl, setIdFrontUrl] = useState('');
+  const [idBackUrl, setIdBackUrl] = useState('');
+  const [licFrontUrl, setLicFrontUrl] = useState('');
+  const [licBackUrl, setLicBackUrl] = useState('');
   const [bio, setBio] = useState('');
   const [makeModel, setMakeModel] = useState('');
   const [year, setYear] = useState(2022);
-  const [plate, setPlate] = useState('');
+  const [plateGovCode, setPlateGovCode] = useState('11');
+  const [plateLetter, setPlateLetter] = useState('');
+  const [plateDigits, setPlateDigits] = useState('');
   const [color, setColor] = useState('');
   const [capacity, setCapacity] = useState(4);
   const [hasAc, setHasAc] = useState(true);
@@ -136,8 +148,10 @@ export const DriverDashboard: React.FC = () => {
       setHomeGarageId(driverProfile.homeGarageId || '');
       setLicenseNo(driverProfile.licenseNumber);
       setNatIdNo(driverProfile.nationalIdNumber);
-      setIdDocUrl(driverProfile.idDocumentUrl || '');
-      setLicDocUrl(driverProfile.licenseDocumentUrl || '');
+      setIdFrontUrl(driverProfile.idFrontUrl || driverProfile.idDocumentUrl || '');
+      setIdBackUrl(driverProfile.idBackUrl || '');
+      setLicFrontUrl(driverProfile.licenseFrontUrl || driverProfile.licenseDocumentUrl || '');
+      setLicBackUrl(driverProfile.licenseBackUrl || '');
       setBio(driverProfile.bio || '');
       setTransferSenderName((prev) => prev || driverProfile.fullName || '');
     }
@@ -147,16 +161,39 @@ export const DriverDashboard: React.FC = () => {
     if (primaryVehicle) {
       setMakeModel(primaryVehicle.makeModel);
       setYear(primaryVehicle.year);
-      setPlate(primaryVehicle.plateNumber);
+      const parsed = parseIraqiPlate(
+        primaryVehicle.plateNumber,
+        primaryVehicle.plateGovCode,
+        primaryVehicle.plateLetter,
+        primaryVehicle.plateDigits,
+        driverProfile?.governorateId || userProfile?.governorateId
+      );
+      setPlateGovCode(parsed.govCode);
+      setPlateLetter(parsed.letter);
+      setPlateDigits(parsed.digits);
       setColor(primaryVehicle.color || '');
       setCapacity(primaryVehicle.passengerCapacity);
       setHasAc(primaryVehicle.hasAc !== false);
       setVehPhotoUrl(primaryVehicle.photoUrl || '');
     } else if (userProfile) {
       if (userProfile.vehicleModel && !makeModel) setMakeModel(userProfile.vehicleModel);
-      if (userProfile.plateNumber && !plate) setPlate(userProfile.plateNumber);
+      if (userProfile.plateNumber || userProfile.plateGovCode || userProfile.plateDigits) {
+        const parsed = parseIraqiPlate(
+          userProfile.plateNumber,
+          userProfile.plateGovCode,
+          userProfile.plateLetter,
+          userProfile.plateDigits,
+          userProfile.governorateId
+        );
+        setPlateGovCode(parsed.govCode);
+        setPlateLetter(parsed.letter);
+        setPlateDigits(parsed.digits);
+      } else {
+        const mappedGov = getPlateGovByGovId(userProfile.governorateId);
+        if (mappedGov) setPlateGovCode(mappedGov.code);
+      }
     }
-  }, [primaryVehicle, userProfile]);
+  }, [primaryVehicle, userProfile, driverProfile?.governorateId]);
 
   React.useEffect(() => {
     if (!firebaseUser) return;
@@ -268,7 +305,26 @@ export const DriverDashboard: React.FC = () => {
   const effectiveVehicleLabel = primaryVehicle
     ? `${primaryVehicle.makeModel} (${primaryVehicle.year})`
     : userProfile?.vehicleModel || makeModel || 'تكسي خاص';
-  const effectivePlateLabel = primaryVehicle?.plateNumber || userProfile?.plateNumber || plate || '';
+  const effectivePlateGovCode =
+    primaryVehicle?.plateGovCode || userProfile?.plateGovCode || plateGovCode || '';
+  const effectivePlateLetter =
+    primaryVehicle?.plateLetter || userProfile?.plateLetter || plateLetter || '';
+  const effectivePlateDigits =
+    primaryVehicle?.plateDigits || userProfile?.plateDigits || plateDigits || '';
+  const effectivePlateCanonical =
+    formatIraqiPlate(effectivePlateGovCode, effectivePlateLetter, effectivePlateDigits, 'ar') ||
+    primaryVehicle?.plateNumber ||
+    userProfile?.plateNumber ||
+    '';
+  const effectivePlateLabel = formatIraqiPlateDisplay(
+    {
+      plateGovCode: effectivePlateGovCode,
+      plateLetter: effectivePlateLetter,
+      plateDigits: effectivePlateDigits,
+      plateNumber: effectivePlateCanonical,
+    },
+    lang
+  );
 
   const seatLabelMap: Record<CabinSeatId, string> = {
     front_passenger: t.booking.seatFrontPassenger,
@@ -461,7 +517,10 @@ export const DriverDashboard: React.FC = () => {
           driver: driverProfile,
           vehicle: primaryVehicle,
           vehicleModel: effectiveVehicleLabel,
-          vehiclePlate: effectivePlateLabel,
+          vehiclePlate: effectivePlateCanonical,
+          plateGovCode: effectivePlateGovCode,
+          plateLetter: effectivePlateLetter,
+          plateDigits: effectivePlateDigits,
           vehiclePhotoUrl: primaryVehicle?.photoUrl || vehPhotoUrl || '',
           departureGovId: depGovId,
           destinationGovId: dstGovId,
@@ -565,7 +624,12 @@ export const DriverDashboard: React.FC = () => {
           {effectivePlateLabel && (
             <>
               <span>·</span>
-              <span className="font-mono font-semibold">{effectivePlateLabel}</span>
+              <span
+                dir="ltr"
+                className="inline-flex items-center px-2 py-0.5 rounded-md bg-white border border-[#CBD5E1] font-mono font-bold text-[#05203C] tabular-nums"
+              >
+                {effectivePlateLabel}
+              </span>
             </>
           )}
         </div>
@@ -1169,6 +1233,24 @@ export const DriverDashboard: React.FC = () => {
                         · {bk.passengerPhone || ''}
                         {bk.passengerNotes ? ` · ${bk.passengerNotes}` : ''}
                       </p>
+                      {(() => {
+                        const bkPlate = formatIraqiPlateDisplay(
+                          bk.vehiclePlate || bk.plateDigits
+                            ? bk
+                            : driverTrips.find((tr) => tr.id === bk.tripId),
+                          lang
+                        );
+                        return bkPlate ? (
+                          <div className="mt-1">
+                            <span
+                              dir="ltr"
+                              className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-mono font-bold text-[#05203C] tabular-nums"
+                            >
+                              {bkPlate}
+                            </span>
+                          </div>
+                        ) : null;
+                      })()}
                       {bk.includeCargo && (
                         <div className="mt-2 inline-flex flex-wrap items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 text-xs">
                           <Package className="w-3.5 h-3.5 text-emerald-700" />
@@ -1331,6 +1413,14 @@ export const DriverDashboard: React.FC = () => {
                         <span>
                           {tr.availableSeats}/{tr.totalSeats} {t.tripCard.seatsAvailable}
                         </span>
+                        {formatIraqiPlateDisplay(tr, lang) && (
+                          <span
+                            dir="ltr"
+                            className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 font-mono font-bold text-[#05203C]"
+                          >
+                            {formatIraqiPlateDisplay(tr, lang)}
+                          </span>
+                        )}
                         <span>·</span>
                         <span className="font-mono font-bold text-[#0770E3]">
                           {minPrice === maxPrice
@@ -1625,15 +1715,24 @@ export const DriverDashboard: React.FC = () => {
                   homeGarageId,
                   licenseNumber: licenseNo,
                   nationalIdNumber: natIdNo,
-                  idDocumentUrl: idDocUrl,
-                  licenseDocumentUrl: licDocUrl,
+                  idDocumentUrl: idFrontUrl,
+                  idFrontUrl,
+                  idBackUrl,
+                  licenseDocumentUrl: licFrontUrl,
+                  licenseFrontUrl: licFrontUrl,
+                  licenseBackUrl: licBackUrl,
                   bio,
                 },
                 {
                   vehicleId: primaryVehicle?.id,
                   makeModel,
                   year,
-                  plateNumber: plate,
+                  plateNumber:
+                    formatIraqiPlate(plateGovCode, plateLetter, plateDigits, 'ar') ||
+                    effectivePlateCanonical,
+                  plateGovCode,
+                  plateLetter,
+                  plateDigits,
                   color,
                   passengerCapacity: capacity,
                   hasAc,
@@ -1647,7 +1746,7 @@ export const DriverDashboard: React.FC = () => {
               setBusy(false);
             }
           }}
-          className="surface-card rounded-2xl p-6 max-w-2xl space-y-4"
+          className="surface-card rounded-2xl p-6 max-w-3xl space-y-5"
         >
           <h2 className="text-lg font-bold text-slate-900">{t.driver.tabVehicleDocs}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1670,6 +1769,7 @@ export const DriverDashboard: React.FC = () => {
             <input
               type="text"
               required
+              minLength={4}
               placeholder={t.auth.nationalIdNumber}
               value={natIdNo}
               onChange={(e) => setNatIdNo(e.target.value)}
@@ -1678,6 +1778,7 @@ export const DriverDashboard: React.FC = () => {
             <input
               type="text"
               required
+              minLength={3}
               placeholder={t.auth.licenseNumber}
               value={licenseNo}
               onChange={(e) => setLicenseNo(e.target.value)}
@@ -1689,16 +1790,25 @@ export const DriverDashboard: React.FC = () => {
               placeholder={t.auth.vehicleModel}
               value={makeModel}
               onChange={(e) => setMakeModel(e.target.value)}
-              className="px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl"
+              className="px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl sm:col-span-2"
             />
-            <input
-              type="text"
-              required
-              placeholder={t.auth.plateNumber}
-              value={plate}
-              onChange={(e) => setPlate(e.target.value)}
-              className="px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl font-mono"
-            />
+            <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2">
+              <label className="block text-xs font-bold text-[#05203C]">
+                {t.auth.plateNumber} <span className="text-rose-600">*</span>
+              </label>
+              <IraqiPlateInput
+                govCode={plateGovCode}
+                letter={plateLetter}
+                digits={plateDigits}
+                required
+                disabled={busy}
+                onChange={(next) => {
+                  setPlateGovCode(next.govCode);
+                  setPlateLetter(next.letter);
+                  setPlateDigits(next.digits);
+                }}
+              />
+            </div>
             <input
               type="number"
               required
@@ -1719,60 +1829,204 @@ export const DriverDashboard: React.FC = () => {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label className="flex items-center justify-between gap-2 px-3 py-2.5 border border-dashed border-slate-300 rounded-xl text-xs cursor-pointer hover:bg-slate-50">
-              <span>{idDocUrl ? t.auth.fileAttached : t.auth.idDocumentPhoto}</span>
-              <Upload className="w-4 h-4" />
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  try {
-                    setBusy(true);
-                    const url = await uploadVerificationImage(
-                      file,
-                      `verification/${firebaseUser.uid}/id_update_${Date.now()}`
-                    );
-                    setIdDocUrl(url);
-                  } catch {
-                    notify('err', t.errors.generic);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              />
-            </label>
-            <label className="flex items-center justify-between gap-2 px-3 py-2.5 border border-dashed border-slate-300 rounded-xl text-xs cursor-pointer hover:bg-slate-50">
-              <span>{licDocUrl ? t.auth.fileAttached : t.auth.licenseDocumentPhoto}</span>
-              <Upload className="w-4 h-4" />
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  try {
-                    setBusy(true);
-                    const url = await uploadVerificationImage(
-                      file,
-                      `verification/${firebaseUser.uid}/license_update_${Date.now()}`
-                    );
-                    setLicDocUrl(url);
-                  } catch {
-                    notify('err', t.errors.generic);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              />
-            </label>
-            <label className="flex items-center justify-between gap-2 px-3 py-2.5 border border-dashed border-slate-300 rounded-xl text-xs cursor-pointer hover:bg-slate-50">
-              <span>{vehPhotoUrl ? t.auth.fileAttached : t.auth.vehiclePhoto}</span>
-              <Upload className="w-4 h-4" />
+          {/* Grouped Front & Back Document Uploads */}
+          <div className="space-y-3">
+            {/* National ID Front + Back */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#05203C]">{t.auth.idGroupLabel}</span>
+                <span className="text-[11px] font-semibold text-[#0770E3]">
+                  {t.auth.frontSideLabel} + {t.auth.backSideLabel}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex flex-col gap-2 p-3 bg-white border border-dashed border-slate-300 rounded-xl text-xs cursor-pointer hover:border-[#0770E3]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-[#05203C]">{t.auth.idFrontPhoto}</span>
+                    <Upload className="w-4 h-4 text-[#0770E3] shrink-0" />
+                  </div>
+                  {idFrontUrl && (
+                    <img
+                      src={idFrontUrl}
+                      alt={t.auth.idFrontPhoto}
+                      className="h-24 w-full object-cover rounded-lg border border-slate-200"
+                    />
+                  )}
+                  <span className="text-[11px] text-slate-500">
+                    {idFrontUrl ? t.auth.replacePhoto : t.auth.tapToUpload}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        setBusy(true);
+                        const url = await uploadVerificationImage(
+                          file,
+                          `verifications/drivers/${firebaseUser.uid}/id_front_${Date.now()}.jpg`
+                        );
+                        setIdFrontUrl(url);
+                      } catch {
+                        notify('err', t.errors.generic);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  />
+                </label>
+
+                <label className="flex flex-col gap-2 p-3 bg-white border border-dashed border-slate-300 rounded-xl text-xs cursor-pointer hover:border-[#0770E3]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-[#05203C]">{t.auth.idBackPhoto}</span>
+                    <Upload className="w-4 h-4 text-[#0770E3] shrink-0" />
+                  </div>
+                  {idBackUrl && (
+                    <img
+                      src={idBackUrl}
+                      alt={t.auth.idBackPhoto}
+                      className="h-24 w-full object-cover rounded-lg border border-slate-200"
+                    />
+                  )}
+                  <span className="text-[11px] text-slate-500">
+                    {idBackUrl ? t.auth.replacePhoto : t.auth.tapToUpload}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        setBusy(true);
+                        const url = await uploadVerificationImage(
+                          file,
+                          `verifications/drivers/${firebaseUser.uid}/id_back_${Date.now()}.jpg`
+                        );
+                        setIdBackUrl(url);
+                      } catch {
+                        notify('err', t.errors.generic);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Driving License Front + Back */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#05203C]">{t.auth.licenseGroupLabel}</span>
+                <span className="text-[11px] font-semibold text-[#0770E3]">
+                  {t.auth.frontSideLabel} + {t.auth.backSideLabel}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex flex-col gap-2 p-3 bg-white border border-dashed border-slate-300 rounded-xl text-xs cursor-pointer hover:border-[#0770E3]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-[#05203C]">{t.auth.licenseFrontPhoto}</span>
+                    <Upload className="w-4 h-4 text-[#0770E3] shrink-0" />
+                  </div>
+                  {licFrontUrl && (
+                    <img
+                      src={licFrontUrl}
+                      alt={t.auth.licenseFrontPhoto}
+                      className="h-24 w-full object-cover rounded-lg border border-slate-200"
+                    />
+                  )}
+                  <span className="text-[11px] text-slate-500">
+                    {licFrontUrl ? t.auth.replacePhoto : t.auth.tapToUpload}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        setBusy(true);
+                        const url = await uploadVerificationImage(
+                          file,
+                          `verifications/drivers/${firebaseUser.uid}/license_front_${Date.now()}.jpg`
+                        );
+                        setLicFrontUrl(url);
+                      } catch {
+                        notify('err', t.errors.generic);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  />
+                </label>
+
+                <label className="flex flex-col gap-2 p-3 bg-white border border-dashed border-slate-300 rounded-xl text-xs cursor-pointer hover:border-[#0770E3]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-[#05203C]">{t.auth.licenseBackPhoto}</span>
+                    <Upload className="w-4 h-4 text-[#0770E3] shrink-0" />
+                  </div>
+                  {licBackUrl && (
+                    <img
+                      src={licBackUrl}
+                      alt={t.auth.licenseBackPhoto}
+                      className="h-24 w-full object-cover rounded-lg border border-slate-200"
+                    />
+                  )}
+                  <span className="text-[11px] text-slate-500">
+                    {licBackUrl ? t.auth.replacePhoto : t.auth.tapToUpload}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        setBusy(true);
+                        const url = await uploadVerificationImage(
+                          file,
+                          `verifications/drivers/${firebaseUser.uid}/license_back_${Date.now()}.jpg`
+                        );
+                        setLicBackUrl(url);
+                      } catch {
+                        notify('err', t.errors.generic);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Vehicle Photo */}
+            <label className="flex items-center justify-between gap-3 p-3.5 border border-dashed border-slate-300 rounded-xl text-xs cursor-pointer hover:border-[#0770E3] bg-white">
+              <div className="flex items-center gap-3 min-w-0">
+                {vehPhotoUrl ? (
+                  <img
+                    src={vehPhotoUrl}
+                    alt={t.auth.vehiclePhoto}
+                    className="w-16 h-12 rounded-lg object-cover border border-slate-200 shrink-0"
+                  />
+                ) : (
+                  <div className="w-16 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+                    <Car className="w-5 h-5" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="font-semibold text-[#05203C]">{t.auth.vehiclePhoto}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {vehPhotoUrl ? t.auth.fileAttached : t.auth.tapToUpload}
+                  </div>
+                </div>
+              </div>
+              <Upload className="w-4 h-4 text-[#0770E3] shrink-0" />
               <input
                 type="file"
                 accept="image/*"
@@ -1787,7 +2041,7 @@ export const DriverDashboard: React.FC = () => {
           <button
             type="submit"
             disabled={busy}
-            className="px-5 py-2.5 bg-[#0770E3] text-white text-sm font-semibold rounded-xl hover:bg-[#0559B8] cursor-pointer"
+            className="px-5 py-2.5 bg-[#0770E3] text-white text-sm font-semibold rounded-xl hover:bg-[#0559B8] cursor-pointer disabled:opacity-50"
           >
             {t.driver.saveVehicleDocs}
           </button>

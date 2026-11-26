@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Award, Banknote, MapPin, Package, Repeat, X } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
+import { formatIraqiPlateDisplay } from '../data/iraqReferenceData';
 import { createBookingTransaction, CUSTOM_DROPOFF_FEE_IQD } from '../services/platformService';
 import { AnimatedModalShell } from './motion/KineticPrimitives';
 import { CarCabinSeatSelector } from './CarCabinSeatSelector';
@@ -38,7 +39,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const { getLocalizedName, formatIqd, t } = useI18n();
+  const { lang, getLocalizedName, formatIqd, t } = useI18n();
   const { userProfile, privateInfo, wallet, settings, governorates, trips } = useAuth();
 
   const trip = useMemo(
@@ -274,20 +275,34 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                 {trip.departureDate} · {trip.departureTime}
               </span>
             </p>
-            <p className="text-xs text-[#0770E3] font-semibold mt-1">
-              {trip.vehicleModel} · {tripCapacity} {t.tripCard.seatsUnit} ·{' '}
-              {isFullCarMode ? (
+            <div className="text-xs text-[#0770E3] font-semibold mt-1 flex flex-wrap items-center gap-1.5">
+              <span>
+                {trip.vehicleModel} · {tripCapacity} {t.tripCard.seatsUnit}
+              </span>
+              {formatIraqiPlateDisplay(trip, lang) && (
                 <>
-                  {t.tripCard.fullCarPriceLabel}:{' '}
-                  <span className="font-mono tabular-nums">{formatIqd(fullCarPriceIqd)}</span>
-                </>
-              ) : (
-                <>
-                  {trip.availableSeats} {t.tripCard.seatsAvailable} · {t.map.startingFrom}{' '}
-                  <span className="font-mono tabular-nums">{formatIqd(getTripMinSeatPrice(trip))}</span>
+                  <span>·</span>
+                  <span
+                    dir="ltr"
+                    className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#F7F9FB] border border-[#CBD5E1] font-mono font-bold text-[#05203C] tabular-nums"
+                  >
+                    {formatIraqiPlateDisplay(trip, lang)}
+                  </span>
                 </>
               )}
-            </p>
+              <span>·</span>
+              {isFullCarMode ? (
+                <span>
+                  {t.tripCard.fullCarPriceLabel}:{' '}
+                  <span className="font-mono tabular-nums">{formatIqd(fullCarPriceIqd)}</span>
+                </span>
+              ) : (
+                <span>
+                  {trip.availableSeats} {t.tripCard.seatsAvailable} · {t.map.startingFrom}{' '}
+                  <span className="font-mono tabular-nums">{formatIqd(getTripMinSeatPrice(trip))}</span>
+                </span>
+              )}
+            </div>
           </div>
 
           {!isPassengerApproved && (

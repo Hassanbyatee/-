@@ -211,3 +211,187 @@ export const GENERATED_IMAGES = {
   basra: '/src/assets/images/dest_basra_1795628889583.jpg',
   najaf: '/src/assets/images/dest_najaf_1795628890481.jpg',
 };
+
+export interface IraqiPlateGovernorate {
+  code: string;
+  govId: string;
+  nameAr: string;
+  nameKu: string;
+  nameEn: string;
+}
+
+export const IRAQI_PLATE_GOVERNORATES: IraqiPlateGovernorate[] = [
+  { code: '22', govId: 'ebl', nameAr: 'أربيل', nameKu: 'هەولێر', nameEn: 'Erbil' },
+  { code: '11', govId: 'bgw', nameAr: 'بغداد', nameKu: 'بەغدا', nameEn: 'Baghdad' },
+  { code: '14', govId: 'bsr', nameAr: 'البصرة', nameKu: 'بەسرە', nameEn: 'Basra' },
+  { code: '12', govId: 'nin', nameAr: 'نينوى', nameKu: 'نەینەوا', nameEn: 'Nineveh' },
+  { code: '21', govId: 'isu', nameAr: 'السليمانية', nameKu: 'سلێمانی', nameEn: 'Sulaymaniyah' },
+  { code: '24', govId: 'dhk', nameAr: 'دهوك', nameKu: 'دهۆک', nameEn: 'Dohuk' },
+  { code: '23', govId: 'krk', nameAr: 'كركوك', nameKu: 'کەرکووک', nameEn: 'Kirkuk' },
+  { code: '15', govId: 'bbl', nameAr: 'بابل', nameKu: 'بابل', nameEn: 'Babil' },
+  { code: '17', govId: 'anb', nameAr: 'الأنبار', nameKu: 'ئەنبار', nameEn: 'Anbar' },
+  { code: '18', govId: 'dyl', nameAr: 'ديالى', nameKu: 'دیالە', nameEn: 'Diyala' },
+  { code: '16', govId: 'wst', nameAr: 'واسط', nameKu: 'واست', nameEn: 'Wasit' },
+  { code: '19', govId: 'krb', nameAr: 'كربلاء', nameKu: 'کەربەلا', nameEn: 'Karbala' },
+  { code: '25', govId: 'njf', nameAr: 'النجف', nameKu: 'نەجەف', nameEn: 'Najaf' },
+  { code: '20', govId: 'qad', nameAr: 'القادسية', nameKu: 'قادسیە', nameEn: 'Qadisiyah' },
+  { code: '26', govId: 'mth', nameAr: 'المثنى', nameKu: 'موسەنا', nameEn: 'Muthanna' },
+  { code: '27', govId: 'dqr', nameAr: 'ذي قار', nameKu: 'زیقار', nameEn: 'Dhi Qar' },
+  { code: '28', govId: 'mys', nameAr: 'ميسان', nameKu: 'میسان', nameEn: 'Maysan' },
+  { code: '29', govId: 'sld', nameAr: 'صلاح الدين', nameKu: 'سەلاحەدین', nameEn: 'Saladin' },
+];
+
+export function getPlateGovByCode(code?: string): IraqiPlateGovernorate | undefined {
+  if (!code) return undefined;
+  return IRAQI_PLATE_GOVERNORATES.find((g) => g.code === code.trim());
+}
+
+export function getPlateGovByGovId(govId?: string): IraqiPlateGovernorate | undefined {
+  if (!govId) return undefined;
+  return IRAQI_PLATE_GOVERNORATES.find((g) => g.govId === govId.trim());
+}
+
+export function sanitizePlateLetter(raw: string): string {
+  return (raw || '')
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '')
+    .slice(0, 1);
+}
+
+const ARABIC_PERSIAN_DIGIT_MAP: Record<string, string> = {
+  '٠': '0',
+  '١': '1',
+  '٢': '2',
+  '٣': '3',
+  '٤': '4',
+  '٥': '5',
+  '٦': '6',
+  '٧': '7',
+  '٨': '8',
+  '٩': '9',
+  '۰': '0',
+  '۱': '1',
+  '۲': '2',
+  '۳': '3',
+  '۴': '4',
+  '۵': '5',
+  '۶': '6',
+  '۷': '7',
+  '۸': '8',
+  '۹': '9',
+};
+
+export function sanitizePlateDigits(raw: string): string {
+  const normalized = (raw || '').replace(/[٠-٩۰-۹]/g, (d) => ARABIC_PERSIAN_DIGIT_MAP[d] ?? d);
+  return normalized.replace(/\D/g, '').slice(0, 8);
+}
+
+export function getPlateGovLabel(
+  gov: IraqiPlateGovernorate,
+  lang: 'ar' | 'ku' | 'en' = 'ar'
+): string {
+  const name = lang === 'ku' ? gov.nameKu : lang === 'en' ? gov.nameEn : gov.nameAr;
+  return `${gov.code} ${name}`;
+}
+
+export function formatIraqiPlate(
+  govCode: string,
+  letter: string,
+  digits: string,
+  lang: 'ar' | 'ku' | 'en' = 'ar'
+): string {
+  const cleanCode = (govCode || '').trim();
+  const cleanLetter = sanitizePlateLetter(letter);
+  const cleanDigits = sanitizePlateDigits(digits);
+  const gov = getPlateGovByCode(cleanCode);
+  if (!gov || !cleanLetter || !cleanDigits) return '';
+  return `${getPlateGovLabel(gov, lang)} | ${cleanLetter} | ${cleanDigits}`;
+}
+
+export function parseIraqiPlate(
+  rawPlate?: string,
+  plateGovCode?: string,
+  plateLetter?: string,
+  plateDigits?: string,
+  fallbackGovId?: string
+): { govCode: string; letter: string; digits: string } {
+  const explicitCode = getPlateGovByCode(plateGovCode)?.code;
+  const explicitLetter = sanitizePlateLetter(plateLetter || '');
+  const explicitDigits = sanitizePlateDigits(plateDigits || '');
+  if (explicitCode && explicitLetter && explicitDigits) {
+    return { govCode: explicitCode, letter: explicitLetter, digits: explicitDigits };
+  }
+
+  const trimmed = (rawPlate || '').trim();
+  if (trimmed) {
+    // Match canonical "22 أربيل | H | 12345"
+    const piped = trimmed.split('|').map((p) => p.trim());
+    if (piped.length === 3) {
+      const codeMatch = piped[0].match(/^(\d{2})/);
+      const matchedGov = getPlateGovByCode(codeMatch?.[1]);
+      const parsedLetter = sanitizePlateLetter(piped[1]);
+      const parsedDigits = sanitizePlateDigits(piped[2]);
+      if (matchedGov || parsedLetter || parsedDigits) {
+        return {
+          govCode:
+            explicitCode ||
+            matchedGov?.code ||
+            getPlateGovByGovId(fallbackGovId)?.code ||
+            '11',
+          letter: explicitLetter || parsedLetter,
+          digits: explicitDigits || parsedDigits,
+        };
+      }
+    }
+
+    // Fallback loose match e.g. "22 H 12345" or "11 بغداد H12345"
+    const codeLoose = trimmed.match(/\b(1[12456789]|2[0-9])\b/);
+    const letterLoose = trimmed.match(/[A-Za-z]/);
+    const digitsLoose = trimmed.replace(/\b(1[12456789]|2[0-9])\b/, '').match(/\d+/);
+    return {
+      govCode:
+        explicitCode ||
+        getPlateGovByCode(codeLoose?.[1])?.code ||
+        getPlateGovByGovId(fallbackGovId)?.code ||
+        '11',
+      letter: explicitLetter || sanitizePlateLetter(letterLoose?.[0] || ''),
+      digits: explicitDigits || sanitizePlateDigits(digitsLoose?.[0] || ''),
+    };
+  }
+
+  return {
+    govCode: explicitCode || getPlateGovByGovId(fallbackGovId)?.code || '11',
+    letter: explicitLetter,
+    digits: explicitDigits,
+  };
+}
+
+export function formatIraqiPlateDisplay(
+  source?: {
+    plateGovCode?: string;
+    plateLetter?: string;
+    plateDigits?: string;
+    plateNumber?: string;
+    vehiclePlate?: string;
+  } | null,
+  lang: 'ar' | 'ku' | 'en' = 'ar'
+): string {
+  if (!source) return '';
+  const raw = (source.vehiclePlate || source.plateNumber || '').trim();
+  if (source.plateGovCode && source.plateLetter && source.plateDigits) {
+    const formatted = formatIraqiPlate(
+      source.plateGovCode,
+      source.plateLetter,
+      source.plateDigits,
+      lang
+    );
+    if (formatted) return formatted;
+  }
+  if (raw.includes('|')) {
+    const parsed = parseIraqiPlate(raw);
+    const formatted = formatIraqiPlate(parsed.govCode, parsed.letter, parsed.digits, lang);
+    if (formatted) return formatted;
+  }
+  return raw;
+}
+

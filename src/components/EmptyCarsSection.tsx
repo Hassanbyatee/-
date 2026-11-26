@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
+import { formatIraqiPlateDisplay } from '../data/iraqReferenceData';
 import {
   isTripCompletelyEmpty,
   type Governorate,
@@ -320,12 +321,20 @@ export const EmptyCarsSection: React.FC<EmptyCarsSectionProps> = ({
                       </span>
                     </div>
 
-                    {/* Seat inventory & optional cargo */}
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#626971]">
+                    {/* Seat inventory, plate & optional cargo */}
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-[#626971]">
                       <span className="inline-flex items-center gap-1 tabular-nums">
                         <MapPin className="w-3.5 h-3.5" />
                         {trip.availableSeats} / {trip.totalSeats} {t.tripCard.seatsAvailable}
                       </span>
+                      {formatIraqiPlateDisplay(trip, lang) && (
+                        <span
+                          dir="ltr"
+                          className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#F7F9FB] border border-[#CBD5E1] text-[11px] font-mono font-bold text-[#05203C] tabular-nums"
+                        >
+                          {formatIraqiPlateDisplay(trip, lang)}
+                        </span>
+                      )}
                       {trip.cargoEnabled && Number(trip.cargoPriceIqd || 0) >= 0 && (
                         <span className="inline-flex items-center gap-1 text-[#05203C]">
                           <Package className="w-3.5 h-3.5 text-[#0770E3]" />

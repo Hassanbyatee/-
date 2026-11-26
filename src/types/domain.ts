@@ -133,10 +133,17 @@ export interface UserProfile {
   governorateId?: string;
   photoUrl?: string;
   idDocumentUrl?: string;
+  idFrontUrl?: string;
+  idBackUrl?: string;
   portraitUrl?: string;
   licenseDocumentUrl?: string;
+  licenseFrontUrl?: string;
+  licenseBackUrl?: string;
   vehicleModel?: string;
   plateNumber?: string;
+  plateGovCode?: string;
+  plateLetter?: string;
+  plateDigits?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -158,7 +165,11 @@ export interface DriverProfile {
   licenseNumber: string;
   nationalIdNumber: string;
   idDocumentUrl?: string;
+  idFrontUrl?: string;
+  idBackUrl?: string;
   licenseDocumentUrl?: string;
+  licenseFrontUrl?: string;
+  licenseBackUrl?: string;
   operatingGovIds?: string[];
   verificationStatus: VerificationStatus;
   rejectionReason?: string;
@@ -194,6 +205,9 @@ export interface Vehicle {
   makeModel: string;
   year: number;
   plateNumber: string;
+  plateGovCode?: string;
+  plateLetter?: string;
+  plateDigits?: string;
   color?: string;
   passengerCapacity: number;
   hasAc?: boolean;
@@ -250,6 +264,9 @@ export interface Trip {
   vehicleId: string;
   vehicleModel: string;
   vehiclePlate?: string;
+  plateGovCode?: string;
+  plateLetter?: string;
+  plateDigits?: string;
   vehiclePhotoUrl?: string;
   departureGovId: string;
   destinationGovId: string;
@@ -288,6 +305,10 @@ export interface Booking {
   driverId: string;
   driverName?: string;
   driverPhone?: string;
+  vehiclePlate?: string;
+  plateGovCode?: string;
+  plateLetter?: string;
+  plateDigits?: string;
   departureGovId?: string;
   destinationGovId?: string;
   departureDate?: string;
