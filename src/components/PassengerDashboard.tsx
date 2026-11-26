@@ -20,11 +20,11 @@ import {
   User,
 } from 'lucide-react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, extractErrorDetails, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
 import { formatIraqiPlateDisplay } from '../data/iraqReferenceData';
-import { uploadVerificationImage } from '../services/imageUtils';
+import { saveSingleVerificationImage } from '../services/imageUtils';
 import {
   cancelBookingTransaction,
   disputePayment,
@@ -317,18 +317,31 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     }
     setResubmittingDocs(true);
     try {
-      const ts = Date.now();
-      const portraitUrl = await uploadVerificationImage(
-        resubmitPortraitFile,
-        `verifications/passengers/${firebaseUser.uid}/portrait_resubmit_${ts}.jpg`
-      );
-      await resubmitPassengerVerificationDocs(firebaseUser.uid, {
-        portraitUrl,
-      });
-      setResubmitPortraitFile(null);
-      notify('ok', t.auth.docsResubmitted);
-    } catch {
-      notify('err', t.errors.generic);
+      let portraitRefUrl = '';
+      try {
+        const saved = await saveSingleVerificationImage(
+          firebaseUser.uid,
+          'portrait',
+          resubmitPortraitFile
+        );
+        portraitRefUrl = saved.refUrl;
+      } catch (imgErr) {
+        const d = extractErrorDetails(imgErr);
+        notify('err', `${t.auth.stepFailedImages} [${d.code}] ${d.message}`);
+        return;
+      }
+
+      try {
+        await resubmitPassengerVerificationDocs(firebaseUser.uid, {
+          portraitUrl: portraitRefUrl,
+          photoUrl: firebaseUser.photoURL || portraitRefUrl,
+        });
+        setResubmitPortraitFile(null);
+        notify('ok', t.auth.docsResubmitted);
+      } catch (profileErr) {
+        const d = extractErrorDetails(profileErr);
+        notify('err', `${t.auth.stepFailedProfile} [${d.code}] ${d.message}`);
+      }
     } finally {
       setResubmittingDocs(false);
     }

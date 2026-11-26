@@ -24,6 +24,7 @@ export enum OperationType {
 
 export interface FirestoreErrorInfo {
   error: string;
+  errorCode?: string;
   operationType: OperationType;
   path: string | null;
   authInfo: {
@@ -39,13 +40,62 @@ export interface FirestoreErrorInfo {
   };
 }
 
+export interface ParsedErrorDetails {
+  code: string;
+  message: string;
+  operationType?: string;
+  path?: string | null;
+}
+
+export function extractErrorDetails(err: unknown): ParsedErrorDetails {
+  if (err instanceof Error) {
+    const rawMsg = err.message || '';
+    if (rawMsg.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(rawMsg) as Partial<FirestoreErrorInfo>;
+        if (parsed && typeof parsed.error === 'string') {
+          return {
+            code: parsed.errorCode || 'firestore-error',
+            message: parsed.error,
+            operationType: parsed.operationType,
+            path: parsed.path ?? null,
+          };
+        }
+      } catch {
+        // Fallback to standard Error handling
+      }
+    }
+    const withCode = err as Error & { code?: string };
+    return {
+      code: withCode.code || (err.name && err.name !== 'Error' ? err.name : '') || 'ERROR',
+      message: rawMsg || err.name || 'Unknown error',
+    };
+  }
+  if (err && typeof err === 'object') {
+    const obj = err as { code?: unknown; name?: unknown; message?: unknown };
+    return {
+      code: String(obj.code || obj.name || 'ERROR'),
+      message: String(obj.message || JSON.stringify(err)),
+    };
+  }
+  return {
+    code: 'UNKNOWN',
+    message: String(err || 'Unknown error'),
+  };
+}
+
 export function handleFirestoreError(
   error: unknown,
   operationType: OperationType,
   path: string | null
 ): never {
+  const errCode =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : undefined;
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
+    ...(errCode ? { errorCode: errCode } : {}),
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,

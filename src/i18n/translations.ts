@@ -299,6 +299,11 @@ export interface TranslationDictionary {
     resubmitDocsTitle: string;
     resubmitDocsBtn: string;
     docsResubmitted: string;
+    stepFailedImages: string;
+    stepFailedProfile: string;
+    profileSavedImagesWarning: string;
+    retrySaveImagesBtn: string;
+    imagesSavedNotice: string;
   };
 
   booking: {
@@ -728,6 +733,7 @@ export interface TranslationDictionary {
     authOperationNotAllowed: string;
     authPopupClosed: string;
     storageUnauthorized: string;
+    storageQuotaExceeded: string;
     invalidImageFile: string;
     cannotDeleteTripWithBookings: string;
     carNotEmpty: string;
@@ -1039,8 +1045,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       tapToUpload: 'اضغط لرفع الصورة',
       missingRequiredFields: 'يرجى إكمال جميع الحقول المطلوبة ورفع كل الصور الإلزامية أولاً.',
       creatingAccount: 'جاري إنشاء الحساب...',
-      uploadingPhotos: 'جاري رفع الصور إلى Firebase Storage...',
-      savingProfile: 'جاري حفظ البيانات في قاعدة البيانات...',
+      uploadingPhotos: 'جاري ضغط وحفظ صور التوثيق...',
+      savingProfile: 'جاري حفظ بيانات الحساب في قاعدة البيانات...',
       pendingReview: 'قيد المراجعة',
       verifiedStatus: 'موثق',
       rejectedStatus: 'مرفوض',
@@ -1055,6 +1061,11 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       resubmitDocsTitle: 'إعادة رفع وثائق التوثيق للمراجعة',
       resubmitDocsBtn: 'إرسال الوثائق المحدّثة للمراجعة',
       docsResubmitted: 'تم إعادة إرسال الوثائق وحالة الحساب الآن قيد المراجعة الإدارية.',
+      stepFailedImages: 'تعذر ضغط أو حفظ صور التوثيق في المتصفح (IndexedDB)',
+      stepFailedProfile: 'تعذر حفظ بيانات الحساب والحالة في قاعدة البيانات (Firestore)',
+      profileSavedImagesWarning: 'تم حفظ بيانات حسابك في قاعدة البيانات بنجاح، لكن تعذر حفظ صور التوثيق محلياً للمراجعة.',
+      retrySaveImagesBtn: 'إعادة محاولة حفظ الصور فقط',
+      imagesSavedNotice: 'تم ضغط صور التوثيق وحفظها لمراجعة الإدارة.',
     },
 
     booking: {
@@ -1501,7 +1512,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       authInvalidCredential: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
       authOperationNotAllowed: 'تسجيل الدخول بالبريد الإلكتروني غير مفعّل في إعدادات Firebase Authentication.',
       authPopupClosed: 'تم إغلاق نافذة Google قبل إتمام تسجيل الدخول.',
-      storageUnauthorized: 'تعذر رفع الصور إلى Firebase Storage. تحقق من أذونات قواعد التخزين.',
+      storageUnauthorized: 'تعذر حفظ صور التوثيق.',
+      storageQuotaExceeded: 'مساحة التخزين المحلية في المتصفح ممتلئة (QuotaExceededError). يرجى اختيار صور أصغر أو تحرير مساحة المتصفح والمحاولة مجدداً.',
       invalidImageFile: 'يرجى اختيار ملف صورة صالح (JPG أو PNG).',
       cannotDeleteTripWithBookings: 'لا يمكن حذف رحلة تحتوي على حجوزات مؤكدة. يمكنك إلغاء الحجوزات أولاً.',
       carNotEmpty: 'عذراً، هذه السيارة غير فارغة — تم حجز مقعد واحد أو أكثر.',
@@ -1814,7 +1826,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       tapToUpload: 'کرتە بکە بۆ هەڵبژاردنی وێنە',
       missingRequiredFields: 'تکایە هەموو خانە پێویستەکان پڕبکەرەوە و وێنە داواکراوەکان باربکە.',
       creatingAccount: 'دروستکردنی هەژمار...',
-      uploadingPhotos: 'بارکردنی وێنەکان بۆ Firebase Storage...',
+      uploadingPhotos: 'پەستەکردن و پاشەکەوتکردنی وێنەکانی دڵنیایی...',
       savingProfile: 'پاشەکەوتکردنی زانیارییەکان...',
       pendingReview: 'لەژێر پێداچوونەوەدا',
       verifiedStatus: 'پەسەندکراو',
@@ -1830,6 +1842,11 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       resubmitDocsTitle: 'دووبارە ناردنی بەڵگەنامەکان بۆ پێداچوونەوە',
       resubmitDocsBtn: 'ناردنی بەڵگەنامە نوێکراوەکان',
       docsResubmitted: 'بەڵگەنامەکان نێردرانەوە و ئێستا لەژێر پێداچوونەوەی کارگێڕیدایە.',
+      stepFailedImages: 'پەستەکردن یان پاشەکەوتکردنی وێنەکان سەرکەوتوو نەبوو (IndexedDB)',
+      stepFailedProfile: 'پاشەکەوتکردنی زانیاری هەژمار لە بنکەدراوە (Firestore) سەرکەوتوو نەبوو',
+      profileSavedImagesWarning: 'زانیاری هەژمارەکەت لە بنکەدراوەدا پاشەکەوت کرا، بەڵام وێنەکان لە وێبگەڕدا پاشەکەوت نەکران.',
+      retrySaveImagesBtn: 'دووبارە هەوڵدانەوە بۆ پاشەکەوتکردنی وێنەکان',
+      imagesSavedNotice: 'وێنەکانی دڵنیایی پەستەکران و بۆ پێداچوونەوە پاشەکەوت کران.',
     },
 
     booking: {
@@ -2276,7 +2293,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       authInvalidCredential: 'ئیمەیڵ یان وشەی نهێنی هەڵەیە.',
       authOperationNotAllowed: 'چوونەژوورەوە بە ئیمەیڵ چالاک نەکراوە لە ڕێکخستنەکانی Firebase Auth.',
       authPopupClosed: 'پەنجەرەی Google داخرا پێش تەواوکردن.',
-      storageUnauthorized: 'بارکردنی وێنەکان سەرکەوتوو نەبوو بەهۆی دەسەڵاتی Firebase Storage.',
+      storageUnauthorized: 'پاشەکەوتکردنی وێنەکان سەرکەوتوو نەبوو.',
+      storageQuotaExceeded: 'بۆشایی پاشەکەوتکردنی وێبگەڕ پڕ بووە (QuotaExceededError). تکایە وێنەی بچووکتر هەڵبژێرە یان بۆشایی بەتاڵ بکەرەوە.',
       invalidImageFile: 'تکایە فایلێکی وێنەی دروست هەڵبژێرە (JPG یان PNG).',
       cannotDeleteTripWithBookings: 'ناتوانرێت گەشتێک بسڕدرێتەوە کە حجزی پەسەندکراوی تێدایە.',
       carNotEmpty: 'ببورە، ئەم ئۆتۆمبێلە بەتاڵ نییە — یەک کورسی یان زیاتر حجزکراوە.',
@@ -2589,7 +2607,7 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       tapToUpload: 'Tap to upload image',
       missingRequiredFields: 'Please complete all required fields and upload every mandatory photo first.',
       creatingAccount: 'Creating account...',
-      uploadingPhotos: 'Uploading verification photos to Firebase Storage...',
+      uploadingPhotos: 'Compressing & saving verification photos...',
       savingProfile: 'Saving profile to Firestore...',
       pendingReview: 'Pending Review',
       verifiedStatus: 'Verified',
@@ -2605,6 +2623,11 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       resubmitDocsTitle: 'Resubmit Verification Documents',
       resubmitDocsBtn: 'Submit Updated Documents for Review',
       docsResubmitted: 'Documents resubmitted. Your account status is back under admin review.',
+      stepFailedImages: 'Failed to compress or save verification images (IndexedDB)',
+      stepFailedProfile: 'Failed to save account profile & status to database (Firestore)',
+      profileSavedImagesWarning: 'Your profile was saved to the database, but verification images could not be saved locally.',
+      retrySaveImagesBtn: 'Retry Saving Verification Images Only',
+      imagesSavedNotice: 'Verification images compressed & saved for admin review.',
     },
 
     booking: {
@@ -3051,7 +3074,8 @@ export const TRANSLATIONS: Record<LanguageCode, TranslationDictionary> = {
       authInvalidCredential: 'Incorrect email or password.',
       authOperationNotAllowed: 'Email/Password sign-in is not enabled in Firebase Authentication settings.',
       authPopupClosed: 'Google sign-in popup was closed before completing.',
-      storageUnauthorized: 'Unable to upload verification photos due to Firebase Storage permissions.',
+      storageUnauthorized: 'Unable to store verification photos.',
+      storageQuotaExceeded: 'Browser storage quota exceeded (QuotaExceededError). Please free storage space or choose smaller images.',
       invalidImageFile: 'Please choose a valid image file (JPG or PNG).',
       cannotDeleteTripWithBookings: 'Cannot remove a trip with confirmed bookings. Cancel bookings first.',
       carNotEmpty: 'This car is no longer completely empty — at least one seat is already reserved.',

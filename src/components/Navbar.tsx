@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Globe, LogOut, Menu, X } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
+import { isIndexedDbImageRef, resolveVerificationImageSrc } from '../services/imageUtils';
 import type { LanguageCode, VerificationStatus } from '../types/domain';
 
 export type AppView =
@@ -26,7 +27,31 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
   const { lang, setLang, t } = useI18n();
   const { firebaseUser, userProfile, driverProfile, isAdmin, notifications, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [resolvedAvatarUrl, setResolvedAvatarUrl] = useState('');
   const prefersReduced = useReducedMotion();
+
+  useEffect(() => {
+    const rawUrl = userProfile?.photoUrl || firebaseUser?.photoURL || '';
+    if (!rawUrl) {
+      setResolvedAvatarUrl('');
+      return;
+    }
+    if (!isIndexedDbImageRef(rawUrl)) {
+      setResolvedAvatarUrl(rawUrl);
+      return;
+    }
+    let cancelled = false;
+    resolveVerificationImageSrc(rawUrl)
+      .then((src) => {
+        if (!cancelled) setResolvedAvatarUrl(src);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedAvatarUrl('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userProfile?.photoUrl, firebaseUser?.photoURL]);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
@@ -288,9 +313,9 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
                 <>
                   <div className="rounded-xl bg-white/10 border border-white/15 px-4 py-3 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      {userProfile?.photoUrl ? (
+                      {resolvedAvatarUrl ? (
                         <img
-                          src={userProfile.photoUrl}
+                          src={resolvedAvatarUrl}
                           alt={displayName}
                           className="w-9 h-9 rounded-full object-cover border border-white/25 shrink-0"
                         />

@@ -193,15 +193,25 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
   const cleanRefCode = (referralCodeInput || '').trim().toUpperCase();
 
   if (cleanRefCode) {
-    const refSnap = await getDoc(doc(db, 'referral_codes', cleanRefCode));
-    if (!refSnap.exists()) {
-      throw new Error('INVALID_REFERRAL_CODE');
+    try {
+      const refSnap = await getDoc(doc(db, 'referral_codes', cleanRefCode));
+      if (!refSnap.exists()) {
+        throw new Error('INVALID_REFERRAL_CODE');
+      }
+      const ownerId = refSnap.data().ownerId as string;
+      if (ownerId === uid) {
+        throw new Error('SELF_REFERRAL_BLOCKED');
+      }
+      referrerId = ownerId;
+    } catch (refErr) {
+      if (
+        refErr instanceof Error &&
+        (refErr.message === 'INVALID_REFERRAL_CODE' || refErr.message === 'SELF_REFERRAL_BLOCKED')
+      ) {
+        throw refErr;
+      }
+      handleFirestoreError(refErr, OperationType.GET, `referral_codes/${cleanRefCode}`);
     }
-    const ownerId = refSnap.data().ownerId as string;
-    if (ownerId === uid) {
-      throw new Error('SELF_REFERRAL_BLOCKED');
-    }
-    referrerId = ownerId;
   }
 
   const finalRole: UserRole = role === 'driver' ? 'driver' : 'passenger';
@@ -210,12 +220,21 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
   const resolvedIdBack = payload.idBackUrl || '';
   const resolvedLicFront = payload.licenseFrontUrl || payload.licenseDocumentUrl || '';
   const resolvedLicBack = payload.licenseBackUrl || '';
+  const safeEmail = (email || `${uid}@masariraq.local`).trim().slice(0, 160);
+  const safePhotoUrl = (photoUrl || payload.portraitUrl || '').trim();
 
   try {
-    const settingsSnap = await getDoc(doc(db, 'platform_settings', 'global'));
-    const settings = settingsSnap.exists()
-      ? (settingsSnap.data() as PlatformSettings)
-      : DEFAULT_PLATFORM_SETTINGS;
+    let settings = DEFAULT_PLATFORM_SETTINGS;
+    if (referrerId) {
+      try {
+        const settingsSnap = await getDoc(doc(db, 'platform_settings', 'global'));
+        if (settingsSnap.exists()) {
+          settings = settingsSnap.data() as PlatformSettings;
+        }
+      } catch {
+        settings = DEFAULT_PLATFORM_SETTINGS;
+      }
+    }
 
     const batch = writeBatch(db);
 
@@ -228,7 +247,7 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
       preferredLanguage,
       referralCode: myReferralCode,
       governorateId,
-      photoUrl: payload.portraitUrl || photoUrl || '',
+      photoUrl: safePhotoUrl,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -274,8 +293,8 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
     batch.set(doc(db, 'users', uid), userDoc);
     batch.set(doc(db, 'users', uid, 'private', 'info'), {
       uid,
-      email,
-      phone: phone.trim(),
+      email: safeEmail,
+      phone: phone.trim().slice(0, 24),
       updatedAt: serverTimestamp(),
     });
     batch.set(doc(db, 'points_wallets', uid), {
@@ -396,12 +415,12 @@ export async function updatePassengerProfile(
 
 export async function resubmitPassengerVerificationDocs(
   uid: string,
-  payload: { portraitUrl: string; idDocumentUrl?: string }
+  payload: { portraitUrl: string; photoUrl?: string; idDocumentUrl?: string }
 ): Promise<void> {
   try {
     const patch: Record<string, unknown> = {
       portraitUrl: payload.portraitUrl,
-      photoUrl: payload.portraitUrl,
+      photoUrl: payload.photoUrl || payload.portraitUrl,
       verificationStatus: 'pending',
       rejectionReason: '',
       updatedAt: serverTimestamp(),

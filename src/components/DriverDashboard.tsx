@@ -24,7 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, extractErrorDetails, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -36,7 +36,14 @@ import {
   parseIraqiPlate,
 } from '../data/iraqReferenceData';
 import { IraqiPlateInput } from './IraqiPlateInput';
-import { compressImageToDataUrl, uploadVerificationImage } from '../services/imageUtils';
+import {
+  compressImageToDataUrl,
+  getUserVerificationImages,
+  isIndexedDbImageRef,
+  makeVerificationImageRef,
+  resolveVerificationImageSrc,
+  saveSingleVerificationImage,
+} from '../services/imageUtils';
 import {
   acceptBookingTransaction,
   completeBookingTransaction,
@@ -137,24 +144,59 @@ export const DriverDashboard: React.FC = () => {
   const [hasAc, setHasAc] = useState(true);
   const [vehPhotoUrl, setVehPhotoUrl] = useState('');
 
+  const [idFrontRef, setIdFrontRef] = useState('');
+  const [idBackRef, setIdBackRef] = useState('');
+  const [licFrontRef, setLicFrontRef] = useState('');
+  const [licBackRef, setLicBackRef] = useState('');
+
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   React.useEffect(() => {
-    if (driverProfile) {
-      setFullName(driverProfile.fullName);
-      setPhone(driverProfile.phone);
-      setGovId(driverProfile.governorateId);
-      setHomeGarageId(driverProfile.homeGarageId || '');
-      setLicenseNo(driverProfile.licenseNumber);
-      setNatIdNo(driverProfile.nationalIdNumber);
-      setIdFrontUrl(driverProfile.idFrontUrl || driverProfile.idDocumentUrl || '');
-      setIdBackUrl(driverProfile.idBackUrl || '');
-      setLicFrontUrl(driverProfile.licenseFrontUrl || driverProfile.licenseDocumentUrl || '');
-      setLicBackUrl(driverProfile.licenseBackUrl || '');
-      setBio(driverProfile.bio || '');
-      setTransferSenderName((prev) => prev || driverProfile.fullName || '');
-    }
+    if (!driverProfile) return;
+    setFullName(driverProfile.fullName);
+    setPhone(driverProfile.phone);
+    setGovId(driverProfile.governorateId);
+    setHomeGarageId(driverProfile.homeGarageId || '');
+    setLicenseNo(driverProfile.licenseNumber);
+    setNatIdNo(driverProfile.nationalIdNumber);
+    const rawIdFront = driverProfile.idFrontUrl || driverProfile.idDocumentUrl || '';
+    const rawIdBack = driverProfile.idBackUrl || '';
+    const rawLicFront = driverProfile.licenseFrontUrl || driverProfile.licenseDocumentUrl || '';
+    const rawLicBack = driverProfile.licenseBackUrl || '';
+    setIdFrontRef(rawIdFront);
+    setIdBackRef(rawIdBack);
+    setLicFrontRef(rawLicFront);
+    setLicBackRef(rawLicBack);
+    setBio(driverProfile.bio || '');
+    setTransferSenderName((prev) => prev || driverProfile.fullName || '');
+
+    let cancelled = false;
+    (async () => {
+      const stored = await getUserVerificationImages(driverProfile.uid);
+      const resolvePreview = async (storedVal: string | undefined, rawVal: string) => {
+        if (storedVal) return storedVal;
+        if (!rawVal) return '';
+        if (isIndexedDbImageRef(rawVal)) return await resolveVerificationImageSrc(rawVal);
+        return rawVal;
+      };
+      const [pIdF, pIdB, pLicF, pLicB] = await Promise.all([
+        resolvePreview(stored.idFrontUrl, rawIdFront),
+        resolvePreview(stored.idBackUrl, rawIdBack),
+        resolvePreview(stored.licenseFrontUrl, rawLicFront),
+        resolvePreview(stored.licenseBackUrl, rawLicBack),
+      ]);
+      if (!cancelled) {
+        setIdFrontUrl(pIdF);
+        setIdBackUrl(pIdB);
+        setLicFrontUrl(pLicF);
+        setLicBackUrl(pLicB);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [driverProfile]);
 
   React.useEffect(() => {
@@ -1706,6 +1748,17 @@ export const DriverDashboard: React.FC = () => {
             e.preventDefault();
             setBusy(true);
             try {
+              const safeRef = (refVal: string, previewVal: string, slot: 'id_front' | 'id_back' | 'license_front' | 'license_back') => {
+                if (refVal && !refVal.startsWith('data:')) return refVal;
+                if (previewVal && !previewVal.startsWith('data:')) return previewVal;
+                if (previewVal) return makeVerificationImageRef(firebaseUser.uid, slot);
+                return '';
+              };
+              const finalIdFront = safeRef(idFrontRef, idFrontUrl, 'id_front');
+              const finalIdBack = safeRef(idBackRef, idBackUrl, 'id_back');
+              const finalLicFront = safeRef(licFrontRef, licFrontUrl, 'license_front');
+              const finalLicBack = safeRef(licBackRef, licBackUrl, 'license_back');
+
               await updateDriverDocumentsAndVehicle(
                 firebaseUser.uid,
                 {
@@ -1715,12 +1768,12 @@ export const DriverDashboard: React.FC = () => {
                   homeGarageId,
                   licenseNumber: licenseNo,
                   nationalIdNumber: natIdNo,
-                  idDocumentUrl: idFrontUrl,
-                  idFrontUrl,
-                  idBackUrl,
-                  licenseDocumentUrl: licFrontUrl,
-                  licenseFrontUrl: licFrontUrl,
-                  licenseBackUrl: licBackUrl,
+                  idDocumentUrl: finalIdFront,
+                  idFrontUrl: finalIdFront,
+                  idBackUrl: finalIdBack,
+                  licenseDocumentUrl: finalLicFront,
+                  licenseFrontUrl: finalLicFront,
+                  licenseBackUrl: finalLicBack,
                   bio,
                 },
                 {
@@ -1740,8 +1793,9 @@ export const DriverDashboard: React.FC = () => {
                 }
               );
               notify('ok', t.driver.savedSuccess);
-            } catch {
-              notify('err', t.errors.generic);
+            } catch (err) {
+              const d = extractErrorDetails(err);
+              notify('err', `${t.auth.stepFailedProfile} [${d.code}] ${d.message}`);
             } finally {
               setBusy(false);
             }
@@ -1861,16 +1915,20 @@ export const DriverDashboard: React.FC = () => {
                     className="hidden"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
+                      e.target.value = '';
                       if (!file) return;
                       try {
                         setBusy(true);
-                        const url = await uploadVerificationImage(
-                          file,
-                          `verifications/drivers/${firebaseUser.uid}/id_front_${Date.now()}.jpg`
+                        const { refUrl, dataUrl } = await saveSingleVerificationImage(
+                          firebaseUser.uid,
+                          'id_front',
+                          file
                         );
-                        setIdFrontUrl(url);
-                      } catch {
-                        notify('err', t.errors.generic);
+                        setIdFrontRef(refUrl);
+                        setIdFrontUrl(dataUrl);
+                      } catch (err) {
+                        const d = extractErrorDetails(err);
+                        notify('err', `${t.auth.stepFailedImages} [${d.code}] ${d.message}`);
                       } finally {
                         setBusy(false);
                       }
@@ -1899,16 +1957,20 @@ export const DriverDashboard: React.FC = () => {
                     className="hidden"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
+                      e.target.value = '';
                       if (!file) return;
                       try {
                         setBusy(true);
-                        const url = await uploadVerificationImage(
-                          file,
-                          `verifications/drivers/${firebaseUser.uid}/id_back_${Date.now()}.jpg`
+                        const { refUrl, dataUrl } = await saveSingleVerificationImage(
+                          firebaseUser.uid,
+                          'id_back',
+                          file
                         );
-                        setIdBackUrl(url);
-                      } catch {
-                        notify('err', t.errors.generic);
+                        setIdBackRef(refUrl);
+                        setIdBackUrl(dataUrl);
+                      } catch (err) {
+                        const d = extractErrorDetails(err);
+                        notify('err', `${t.auth.stepFailedImages} [${d.code}] ${d.message}`);
                       } finally {
                         setBusy(false);
                       }
@@ -1948,16 +2010,20 @@ export const DriverDashboard: React.FC = () => {
                     className="hidden"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
+                      e.target.value = '';
                       if (!file) return;
                       try {
                         setBusy(true);
-                        const url = await uploadVerificationImage(
-                          file,
-                          `verifications/drivers/${firebaseUser.uid}/license_front_${Date.now()}.jpg`
+                        const { refUrl, dataUrl } = await saveSingleVerificationImage(
+                          firebaseUser.uid,
+                          'license_front',
+                          file
                         );
-                        setLicFrontUrl(url);
-                      } catch {
-                        notify('err', t.errors.generic);
+                        setLicFrontRef(refUrl);
+                        setLicFrontUrl(dataUrl);
+                      } catch (err) {
+                        const d = extractErrorDetails(err);
+                        notify('err', `${t.auth.stepFailedImages} [${d.code}] ${d.message}`);
                       } finally {
                         setBusy(false);
                       }
@@ -1986,16 +2052,20 @@ export const DriverDashboard: React.FC = () => {
                     className="hidden"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
+                      e.target.value = '';
                       if (!file) return;
                       try {
                         setBusy(true);
-                        const url = await uploadVerificationImage(
-                          file,
-                          `verifications/drivers/${firebaseUser.uid}/license_back_${Date.now()}.jpg`
+                        const { refUrl, dataUrl } = await saveSingleVerificationImage(
+                          firebaseUser.uid,
+                          'license_back',
+                          file
                         );
-                        setLicBackUrl(url);
-                      } catch {
-                        notify('err', t.errors.generic);
+                        setLicBackRef(refUrl);
+                        setLicBackUrl(dataUrl);
+                      } catch (err) {
+                        const d = extractErrorDetails(err);
+                        notify('err', `${t.auth.stepFailedImages} [${d.code}] ${d.message}`);
                       } finally {
                         setBusy(false);
                       }

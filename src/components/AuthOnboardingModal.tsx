@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
-import { uploadVerificationImage } from '../services/imageUtils';
+import { extractErrorDetails } from '../lib/firebase';
+import { saveUserVerificationImages, type VerificationDocSlot } from '../services/imageUtils';
 import { registerUserProfile } from '../services/platformService';
 import { formatIraqiPlate, getPlateGovByGovId } from '../data/iraqReferenceData';
 import { IraqiPlateInput } from './IraqiPlateInput';
@@ -192,6 +193,8 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [progressStep, setProgressStep] = useState<'' | 'signingIn' | 'uploading' | 'saving'>('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [errorDetail, setErrorDetail] = useState('');
+  const [imagesSavedNotice, setImagesSavedNotice] = useState(false);
 
   const isSubmittingRef = useRef(false);
   const previewUrlsRef = useRef<string[]>([]);
@@ -200,6 +203,8 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
     if (isOpen && !isSubmittingRef.current) {
       setRole(initialRole === 'driver' ? 'driver' : 'passenger');
       setErrorMsg('');
+      setErrorDetail('');
+      setImagesSavedNotice(false);
     }
   }, [isOpen, initialRole]);
 
@@ -253,6 +258,8 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
     setter: React.Dispatch<React.SetStateAction<SelectedPhoto | null>>
   ) => {
     setErrorMsg('');
+    setErrorDetail('');
+    setImagesSavedNotice(false);
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       setErrorMsg(t.errors.invalidImageFile);
@@ -266,6 +273,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
     prev: SelectedPhoto | null,
     setter: React.Dispatch<React.SetStateAction<SelectedPhoto | null>>
   ) => {
+    setImagesSavedNotice(false);
     if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
     setter(null);
   };
@@ -276,24 +284,44 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
     [garages, governorateId]
   );
 
-  const mapFirebaseError = (err: unknown): string => {
-    const code = (err as { code?: string })?.code || '';
-    const msg = err instanceof Error ? err.message : '';
+  const formatOnboardingError = (
+    err: unknown,
+    step: 'auth' | 'images' | 'profile'
+  ): { summary: string; detail: string } => {
+    const details = extractErrorDetails(err);
+    const techLine = `[${details.code}${details.operationType ? ` · ${details.operationType}` : ''}${
+      details.path ? ` @ ${details.path}` : ''
+    }] ${details.message}`;
 
-    if (msg === 'INVALID_REFERRAL_CODE') return t.auth.invalidReferralCode;
-    if (msg === 'SELF_REFERRAL_BLOCKED') return t.auth.selfReferralBlocked;
-    if (msg === 'INVALID_IMAGE_FILE') return t.errors.invalidImageFile;
-
-    switch (code) {
-      case 'auth/popup-closed-by-user':
-      case 'auth/cancelled-popup-request':
-        return t.errors.authPopupClosed;
-      case 'storage/unauthorized':
-      case 'storage/unauthenticated':
-        return t.errors.storageUnauthorized;
-      default:
-        return t.errors.generic;
+    if (details.message === 'INVALID_REFERRAL_CODE') {
+      return { summary: t.auth.invalidReferralCode, detail: '' };
     }
+    if (details.message === 'SELF_REFERRAL_BLOCKED') {
+      return { summary: t.auth.selfReferralBlocked, detail: '' };
+    }
+    if (details.code === 'INVALID_IMAGE_FILE' || details.message === 'INVALID_IMAGE_FILE') {
+      return { summary: t.errors.invalidImageFile, detail: techLine };
+    }
+    if (details.code === 'STORAGE_QUOTA_EXCEEDED') {
+      return {
+        summary: `${t.auth.stepFailedImages}: ${t.errors.storageQuotaExceeded}`,
+        detail: techLine,
+      };
+    }
+    if (
+      details.code === 'auth/popup-closed-by-user' ||
+      details.code === 'auth/cancelled-popup-request'
+    ) {
+      return { summary: t.errors.authPopupClosed, detail: details.code };
+    }
+
+    const summary =
+      step === 'images'
+        ? t.auth.stepFailedImages
+        : step === 'profile'
+        ? t.auth.stepFailedProfile
+        : t.errors.generic;
+    return { summary, detail: techLine };
   };
 
   const hasCommonFields =
@@ -336,6 +364,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
 
   const handleGoogleSignIn = async () => {
     setErrorMsg('');
+    setErrorDetail('');
     setLoading(true);
     setProgressStep('signingIn');
     try {
@@ -344,7 +373,9 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
       // - If profile exists, useEffect above logs user straight into app & closes modal.
       // - If new user, needsOnboarding becomes true and shows Complete Profile step.
     } catch (err) {
-      setErrorMsg(mapFirebaseError(err));
+      const formatted = formatOnboardingError(err, 'auth');
+      setErrorMsg(formatted.summary);
+      setErrorDetail(formatted.detail);
     } finally {
       setLoading(false);
       setProgressStep('');
@@ -356,115 +387,78 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
     if (!firebaseUser) return;
     if (!canSubmitOnboarding) {
       setErrorMsg(t.auth.missingRequiredFields);
+      setErrorDetail('');
       return;
     }
 
     setErrorMsg('');
+    setErrorDetail('');
+    setImagesSavedNotice(false);
     setLoading(true);
     isSubmittingRef.current = true;
 
     try {
       const uid = firebaseUser.uid;
-      const timestamp = Date.now();
-      let uploadedPortraitUrl = '';
-      let uploadedIdFrontUrl = '';
-      let uploadedIdBackUrl = '';
-      let uploadedLicenseFrontUrl = '';
-      let uploadedLicenseBackUrl = '';
 
+      // STEP 1 (Separated): Client-side Canvas compression (800px, JPEG 0.6) + IndexedDB persistence
       setProgressStep('uploading');
-      const folder = role === 'driver' ? 'drivers' : 'passengers';
-      const uploadTasks: Promise<void>[] = [];
-
-      if (portraitPhoto) {
-        uploadTasks.push(
-          uploadVerificationImage(
-            portraitPhoto.file,
-            `verifications/${folder}/${uid}/portrait_${timestamp}.jpg`
-          ).then((url) => {
-            uploadedPortraitUrl = url;
-          })
-        );
+      let imageRefs: Partial<Record<VerificationDocSlot, string>> = {};
+      try {
+        const entries: Partial<Record<VerificationDocSlot, File>> = {};
+        if (portraitPhoto) entries.portrait = portraitPhoto.file;
+        if (role === 'driver') {
+          if (idFrontPhoto) entries.id_front = idFrontPhoto.file;
+          if (idBackPhoto) entries.id_back = idBackPhoto.file;
+          if (licenseFrontPhoto) entries.license_front = licenseFrontPhoto.file;
+          if (licenseBackPhoto) entries.license_back = licenseBackPhoto.file;
+        }
+        imageRefs = await saveUserVerificationImages(uid, entries);
+        setImagesSavedNotice(true);
+      } catch (imgErr) {
+        const formatted = formatOnboardingError(imgErr, 'images');
+        setErrorMsg(formatted.summary);
+        setErrorDetail(formatted.detail);
+        return;
       }
 
-      if (role === 'driver') {
-        if (idFrontPhoto) {
-          uploadTasks.push(
-            uploadVerificationImage(
-              idFrontPhoto.file,
-              `verifications/drivers/${uid}/id_front_${timestamp}.jpg`
-            ).then((url) => {
-              uploadedIdFrontUrl = url;
-            })
-          );
-        }
-        if (idBackPhoto) {
-          uploadTasks.push(
-            uploadVerificationImage(
-              idBackPhoto.file,
-              `verifications/drivers/${uid}/id_back_${timestamp}.jpg`
-            ).then((url) => {
-              uploadedIdBackUrl = url;
-            })
-          );
-        }
-        if (licenseFrontPhoto) {
-          uploadTasks.push(
-            uploadVerificationImage(
-              licenseFrontPhoto.file,
-              `verifications/drivers/${uid}/license_front_${timestamp}.jpg`
-            ).then((url) => {
-              uploadedLicenseFrontUrl = url;
-            })
-          );
-        }
-        if (licenseBackPhoto) {
-          uploadTasks.push(
-            uploadVerificationImage(
-              licenseBackPhoto.file,
-              `verifications/drivers/${uid}/license_back_${timestamp}.jpg`
-            ).then((url) => {
-              uploadedLicenseBackUrl = url;
-            })
-          );
-        }
-      }
-
-      await Promise.all(uploadTasks);
-
+      // STEP 2 (Separated): Save user profile, role & pending status to Firestore (lightweight payload)
       setProgressStep('saving');
-      const formattedPlate =
-        role === 'driver' ? formatIraqiPlate(plateGovCode, plateLetter, plateDigits, 'ar') : '';
-      await registerUserProfile({
-        uid,
-        email: firebaseUser.email || '',
-        displayName,
-        phone,
-        role: role === 'driver' ? 'driver' : 'passenger',
-        preferredLanguage: lang,
-        governorateId,
-        verificationStatus: 'pending',
-        photoUrl: uploadedPortraitUrl || firebaseUser.photoURL || '',
-        portraitUrl: uploadedPortraitUrl,
-        idDocumentUrl: role === 'driver' ? uploadedIdFrontUrl : '',
-        idFrontUrl: role === 'driver' ? uploadedIdFrontUrl : '',
-        idBackUrl: role === 'driver' ? uploadedIdBackUrl : '',
-        licenseDocumentUrl: role === 'driver' ? uploadedLicenseFrontUrl : '',
-        licenseFrontUrl: role === 'driver' ? uploadedLicenseFrontUrl : '',
-        licenseBackUrl: role === 'driver' ? uploadedLicenseBackUrl : '',
-        referralCodeInput,
-        homeGarageId: govGarages[0]?.id || garages[0]?.id || '',
-        vehicleModel: role === 'driver' ? vehicleModel : '',
-        plateNumber: formattedPlate,
-        plateGovCode: role === 'driver' ? plateGovCode : '',
-        plateLetter: role === 'driver' ? plateLetter : '',
-        plateDigits: role === 'driver' ? plateDigits : '',
-      });
+      try {
+        const formattedPlate =
+          role === 'driver' ? formatIraqiPlate(plateGovCode, plateLetter, plateDigits, 'ar') : '';
+        await registerUserProfile({
+          uid,
+          email: firebaseUser.email || `${uid}@masariraq.local`,
+          displayName,
+          phone,
+          role: role === 'driver' ? 'driver' : 'passenger',
+          preferredLanguage: lang,
+          governorateId,
+          verificationStatus: 'pending',
+          photoUrl: firebaseUser.photoURL || imageRefs.portrait || '',
+          portraitUrl: imageRefs.portrait || '',
+          idDocumentUrl: role === 'driver' ? imageRefs.id_front || '' : '',
+          idFrontUrl: role === 'driver' ? imageRefs.id_front || '' : '',
+          idBackUrl: role === 'driver' ? imageRefs.id_back || '' : '',
+          licenseDocumentUrl: role === 'driver' ? imageRefs.license_front || '' : '',
+          licenseFrontUrl: role === 'driver' ? imageRefs.license_front || '' : '',
+          licenseBackUrl: role === 'driver' ? imageRefs.license_back || '' : '',
+          referralCodeInput,
+          homeGarageId: govGarages[0]?.id || garages[0]?.id || '',
+          vehicleModel: role === 'driver' ? vehicleModel : '',
+          plateNumber: formattedPlate,
+          plateGovCode: role === 'driver' ? plateGovCode : '',
+          plateLetter: role === 'driver' ? plateLetter : '',
+          plateDigits: role === 'driver' ? plateDigits : '',
+        });
 
-      onCompleted?.(role);
-      onClose();
-    } catch (err) {
-      setErrorMsg(mapFirebaseError(err));
+        onCompleted?.(role);
+        onClose();
+      } catch (profileErr) {
+        const formatted = formatOnboardingError(profileErr, 'profile');
+        setErrorMsg(formatted.summary);
+        setErrorDetail(formatted.detail);
+      }
     } finally {
       isSubmittingRef.current = false;
       setLoading(false);
@@ -585,7 +579,17 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
               {errorMsg && (
                 <div className="flex items-start gap-2.5 text-start text-xs sm:text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 max-w-md mx-auto">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{errorMsg}</span>
+                  <div className="space-y-1 min-w-0">
+                    <div>{errorMsg}</div>
+                    {errorDetail && (
+                      <div
+                        dir="ltr"
+                        className="text-[11px] font-mono text-rose-800 bg-white/80 border border-rose-200 rounded-lg px-2 py-1 break-all"
+                      >
+                        {errorDetail}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -925,11 +929,29 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                 </div>
               )}
 
-              {/* Error Alert */}
+              {/* Partial success notice if images saved to IndexedDB */}
+              {imagesSavedNotice && !loading && errorMsg && (
+                <div className="flex items-center gap-2.5 text-xs font-semibold text-[#0559B8] bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl px-4 py-2.5">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-[#0770E3]" />
+                  <span>{t.auth.imagesSavedNotice}</span>
+                </div>
+              )}
+
+              {/* Error Alert with Exact Diagnostic Code/Message */}
               {errorMsg && (
                 <div className="flex items-start gap-2.5 text-xs sm:text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{errorMsg}</span>
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    <div className="font-semibold">{errorMsg}</div>
+                    {errorDetail && (
+                      <div
+                        dir="ltr"
+                        className="text-[11px] font-mono text-rose-900 bg-white/85 border border-rose-200 rounded-lg px-2.5 py-1.5 break-all text-left"
+                      >
+                        {errorDetail}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

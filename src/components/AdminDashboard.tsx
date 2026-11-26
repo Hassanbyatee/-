@@ -21,10 +21,16 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { collection, doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, extractErrorDetails } from '../lib/firebase';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
 import { formatIraqiPlateDisplay } from '../data/iraqReferenceData';
+import {
+  getUserVerificationImages,
+  isIndexedDbImageRef,
+  resolveVerificationImageSrc,
+  type VerificationDocImages,
+} from '../services/imageUtils';
 import {
   adminAdjustWalletPoints,
   adminDeleteGarage,
@@ -88,6 +94,7 @@ export const AdminDashboard: React.FC = () => {
   const [inspectDriver, setInspectDriver] = useState<DriverProfile | null>(null);
   const [inspectUser, setInspectUser] = useState<UserProfile | null>(null);
   const [inspectPrivateInfo, setInspectPrivateInfo] = useState<UserPrivateInfo | null>(null);
+  const [inspectDocs, setInspectDocs] = useState<VerificationDocImages>({});
   const [zoomedPhoto, setZoomedPhoto] = useState<{ url: string; title: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
@@ -193,11 +200,80 @@ export const AdminDashboard: React.FC = () => {
 
   React.useEffect(() => {
     const targetUid = inspectDriver?.uid || inspectUser?.uid;
-    if (!targetUid || !firebaseUser) {
+    if (!targetUid) {
       setInspectPrivateInfo(null);
+      setInspectDocs({});
       return;
     }
     let cancelled = false;
+
+    const hydrateDocs = async () => {
+      try {
+        const stored = await getUserVerificationImages(targetUid);
+        const linkedUsr = inspectUser || users.find((u) => u.uid === targetUid);
+        const linkedDrv = inspectDriver || drivers.find((d) => d.uid === targetUid);
+
+        const resolveSlot = async (
+          storedVal: string | undefined,
+          ...candidates: Array<string | undefined>
+        ): Promise<string> => {
+          if (storedVal) return storedVal;
+          for (const c of candidates) {
+            if (!c) continue;
+            if (isIndexedDbImageRef(c)) {
+              const resolved = await resolveVerificationImageSrc(c);
+              if (resolved) return resolved;
+            } else {
+              return c;
+            }
+          }
+          return '';
+        };
+
+        const [portraitUrl, idFrontUrl, idBackUrl, licenseFrontUrl, licenseBackUrl] =
+          await Promise.all([
+            resolveSlot(stored.portraitUrl, linkedUsr?.portraitUrl, linkedUsr?.photoUrl),
+            resolveSlot(
+              stored.idFrontUrl,
+              linkedDrv?.idFrontUrl,
+              linkedDrv?.idDocumentUrl,
+              linkedUsr?.idFrontUrl,
+              linkedUsr?.idDocumentUrl
+            ),
+            resolveSlot(stored.idBackUrl, linkedDrv?.idBackUrl, linkedUsr?.idBackUrl),
+            resolveSlot(
+              stored.licenseFrontUrl,
+              linkedDrv?.licenseFrontUrl,
+              linkedDrv?.licenseDocumentUrl,
+              linkedUsr?.licenseFrontUrl,
+              linkedUsr?.licenseDocumentUrl
+            ),
+            resolveSlot(stored.licenseBackUrl, linkedDrv?.licenseBackUrl, linkedUsr?.licenseBackUrl),
+          ]);
+
+        if (!cancelled) {
+          setInspectDocs({
+            portraitUrl,
+            idFrontUrl,
+            idBackUrl,
+            licenseFrontUrl,
+            licenseBackUrl,
+          });
+        }
+      } catch {
+        if (!cancelled) setInspectDocs({});
+      }
+    };
+
+    hydrateDocs();
+
+    if (!firebaseUser) {
+      setInspectPrivateInfo(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     getDoc(doc(db, 'users', targetUid, 'private', 'info'))
       .then((snap) => {
         if (!cancelled) {
@@ -210,7 +286,7 @@ export const AdminDashboard: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [inspectDriver?.uid, inspectUser?.uid, firebaseUser]);
+  }, [inspectDriver, inspectUser, users, drivers, firebaseUser]);
 
   const stats = useMemo(() => {
     const gmv = allPayments
@@ -1483,21 +1559,42 @@ export const AdminDashboard: React.FC = () => {
           const linkedUser = users.find((u) => u.uid === inspectDriver.uid);
           const drvGov = governorates.find((g) => g.id === inspectDriver.governorateId);
           const drvVehicles = vehicles.filter((v) => v.driverId === inspectDriver.uid);
-          const portraitSrc = linkedUser?.portraitUrl || linkedUser?.photoUrl || '';
-          const idFrontSrc =
-            inspectDriver.idFrontUrl ||
-            inspectDriver.idDocumentUrl ||
-            linkedUser?.idFrontUrl ||
-            linkedUser?.idDocumentUrl ||
-            '';
-          const idBackSrc = inspectDriver.idBackUrl || linkedUser?.idBackUrl || '';
-          const licFrontSrc =
-            inspectDriver.licenseFrontUrl ||
-            inspectDriver.licenseDocumentUrl ||
-            linkedUser?.licenseFrontUrl ||
-            linkedUser?.licenseDocumentUrl ||
-            '';
-          const licBackSrc = inspectDriver.licenseBackUrl || linkedUser?.licenseBackUrl || '';
+          const pickSrc = (resolvedVal: string | undefined, ...fallbacks: Array<string | undefined>) => {
+            if (resolvedVal) return resolvedVal;
+            for (const f of fallbacks) {
+              if (f && !isIndexedDbImageRef(f)) return f;
+            }
+            return '';
+          };
+          const portraitSrc = pickSrc(
+            inspectDocs.portraitUrl,
+            linkedUser?.portraitUrl,
+            linkedUser?.photoUrl
+          );
+          const idFrontSrc = pickSrc(
+            inspectDocs.idFrontUrl,
+            inspectDriver.idFrontUrl,
+            inspectDriver.idDocumentUrl,
+            linkedUser?.idFrontUrl,
+            linkedUser?.idDocumentUrl
+          );
+          const idBackSrc = pickSrc(
+            inspectDocs.idBackUrl,
+            inspectDriver.idBackUrl,
+            linkedUser?.idBackUrl
+          );
+          const licFrontSrc = pickSrc(
+            inspectDocs.licenseFrontUrl,
+            inspectDriver.licenseFrontUrl,
+            inspectDriver.licenseDocumentUrl,
+            linkedUser?.licenseFrontUrl,
+            linkedUser?.licenseDocumentUrl
+          );
+          const licBackSrc = pickSrc(
+            inspectDocs.licenseBackUrl,
+            inspectDriver.licenseBackUrl,
+            linkedUser?.licenseBackUrl
+          );
 
           const renderDocThumb = (src: string, label: string) => (
             <div className="space-y-1.5">
@@ -1617,8 +1714,9 @@ export const AdminDashboard: React.FC = () => {
                       setInspectDriver(null);
                       setRejectReason('');
                       showToast(t.driver.savedSuccess);
-                    } catch {
-                      showToast(t.errors.generic);
+                    } catch (err) {
+                      const d = extractErrorDetails(err);
+                      showToast(`${t.errors.generic} [${d.code}] ${d.message}`);
                     }
                   }}
                   className="px-4 py-2 text-xs font-semibold text-rose-700 border border-rose-200 rounded-xl hover:bg-rose-50 cursor-pointer"
@@ -1633,8 +1731,9 @@ export const AdminDashboard: React.FC = () => {
                       setInspectDriver(null);
                       setRejectReason('');
                       showToast(t.driver.savedSuccess);
-                    } catch {
-                      showToast(t.errors.generic);
+                    } catch (err) {
+                      const d = extractErrorDetails(err);
+                      showToast(`${t.errors.generic} [${d.code}] ${d.message}`);
                     }
                   }}
                   className="px-4 py-2 text-xs font-semibold bg-[#0770E3] text-white rounded-xl hover:bg-[#0559B8] cursor-pointer"
@@ -1657,21 +1756,42 @@ export const AdminDashboard: React.FC = () => {
           const linkedDriver = drivers.find((d) => d.uid === inspectUser.uid);
           const usrGov = governorates.find((g) => g.id === inspectUser.governorateId);
           const isDriverAccount = inspectUser.role === 'driver' || Boolean(linkedDriver);
-          const portraitSrc = inspectUser.portraitUrl || inspectUser.photoUrl || '';
-          const idFrontSrc =
-            inspectUser.idFrontUrl ||
-            inspectUser.idDocumentUrl ||
-            linkedDriver?.idFrontUrl ||
-            linkedDriver?.idDocumentUrl ||
-            '';
-          const idBackSrc = inspectUser.idBackUrl || linkedDriver?.idBackUrl || '';
-          const licFrontSrc =
-            inspectUser.licenseFrontUrl ||
-            inspectUser.licenseDocumentUrl ||
-            linkedDriver?.licenseFrontUrl ||
-            linkedDriver?.licenseDocumentUrl ||
-            '';
-          const licBackSrc = inspectUser.licenseBackUrl || linkedDriver?.licenseBackUrl || '';
+          const pickSrc = (resolvedVal: string | undefined, ...fallbacks: Array<string | undefined>) => {
+            if (resolvedVal) return resolvedVal;
+            for (const f of fallbacks) {
+              if (f && !isIndexedDbImageRef(f)) return f;
+            }
+            return '';
+          };
+          const portraitSrc = pickSrc(
+            inspectDocs.portraitUrl,
+            inspectUser.portraitUrl,
+            inspectUser.photoUrl
+          );
+          const idFrontSrc = pickSrc(
+            inspectDocs.idFrontUrl,
+            inspectUser.idFrontUrl,
+            inspectUser.idDocumentUrl,
+            linkedDriver?.idFrontUrl,
+            linkedDriver?.idDocumentUrl
+          );
+          const idBackSrc = pickSrc(
+            inspectDocs.idBackUrl,
+            inspectUser.idBackUrl,
+            linkedDriver?.idBackUrl
+          );
+          const licFrontSrc = pickSrc(
+            inspectDocs.licenseFrontUrl,
+            inspectUser.licenseFrontUrl,
+            inspectUser.licenseDocumentUrl,
+            linkedDriver?.licenseFrontUrl,
+            linkedDriver?.licenseDocumentUrl
+          );
+          const licBackSrc = pickSrc(
+            inspectDocs.licenseBackUrl,
+            inspectUser.licenseBackUrl,
+            linkedDriver?.licenseBackUrl
+          );
 
           const renderUserDocThumb = (src: string, label: string) => (
             <div className="space-y-1.5">
@@ -1821,8 +1941,9 @@ export const AdminDashboard: React.FC = () => {
                       setInspectUser(null);
                       setRejectReason('');
                       showToast(t.driver.savedSuccess);
-                    } catch {
-                      showToast(t.errors.generic);
+                    } catch (err) {
+                      const d = extractErrorDetails(err);
+                      showToast(`${t.errors.generic} [${d.code}] ${d.message}`);
                     }
                   }}
                   className="px-4 py-2 text-xs font-semibold text-rose-700 border border-rose-200 rounded-xl hover:bg-rose-50 cursor-pointer"
@@ -1837,8 +1958,9 @@ export const AdminDashboard: React.FC = () => {
                       setInspectUser(null);
                       setRejectReason('');
                       showToast(t.driver.savedSuccess);
-                    } catch {
-                      showToast(t.errors.generic);
+                    } catch (err) {
+                      const d = extractErrorDetails(err);
+                      showToast(`${t.errors.generic} [${d.code}] ${d.message}`);
                     }
                   }}
                   className="px-4 py-2 text-xs font-semibold bg-[#0770E3] text-white rounded-xl hover:bg-[#0559B8] cursor-pointer"
