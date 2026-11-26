@@ -3,7 +3,8 @@ export type VerificationDocSlot =
   | 'id_front'
   | 'id_back'
   | 'license_front'
-  | 'license_back';
+  | 'license_back'
+  | 'vehicle_photo';
 
 export interface VerificationDocImages {
   portraitUrl?: string;
@@ -11,11 +12,13 @@ export interface VerificationDocImages {
   idBackUrl?: string;
   licenseFrontUrl?: string;
   licenseBackUrl?: string;
+  vehiclePhotoUrl?: string;
 }
 
 interface StoredVerificationImageRecord {
   id: string;
   uid: string;
+  email?: string;
   slot: VerificationDocSlot;
   dataUrl: string;
   sizeBytes: number;
@@ -23,13 +26,18 @@ interface StoredVerificationImageRecord {
 }
 
 const IDB_NAME = 'masar_iraq_verification_docs_v1';
-const IDB_VERSION = 1;
+const IDB_VERSION = 2;
 const IDB_STORE = 'verification_docs';
 const IDB_UID_INDEX = 'by_uid';
+const IDB_EMAIL_INDEX = 'by_email';
 const SESSION_FALLBACK_PREFIX = 'masar_vdoc_';
 const MAX_SESSION_FALLBACK_BYTES = 2_000_000;
 
 const memoryFallbackStore = new Map<string, StoredVerificationImageRecord>();
+
+function normalizeEmail(email?: string | null): string {
+  return (email || '').trim().toLowerCase();
+}
 
 function createCodedError(code: string, message: string): Error & { code: string } {
   const err = new Error(message) as Error & { code: string };
@@ -73,7 +81,8 @@ export function parseVerificationImageRef(
     slot !== 'id_front' &&
     slot !== 'id_back' &&
     slot !== 'license_front' &&
-    slot !== 'license_back'
+    slot !== 'license_back' &&
+    slot !== 'vehicle_photo'
   ) {
     return null;
   }
@@ -83,10 +92,13 @@ export function parseVerificationImageRef(
 export async function compressImageToCanvasDataUrl(
   file: File,
   maxDimension = 800,
-  quality = 0.6
+  quality = 0.65
 ): Promise<string> {
   if (!file || !file.type || !file.type.startsWith('image/')) {
-    throw createCodedError('INVALID_IMAGE_FILE', `Unsupported image file type: ${file?.type || 'unknown'}`);
+    throw createCodedError(
+      'INVALID_IMAGE_FILE',
+      `Unsupported image file type: ${file?.type || 'unknown'}`
+    );
   }
 
   return new Promise((resolve, reject) => {
@@ -108,14 +120,19 @@ export async function compressImageToCanvasDataUrl(
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            reject(createCodedError('CANVAS_UNAVAILABLE', 'HTML5 Canvas 2D context is unavailable.'));
+            reject(
+              createCodedError('CANVAS_UNAVAILABLE', 'HTML5 Canvas 2D context is unavailable.')
+            );
             return;
           }
           ctx.drawImage(img, 0, 0, width, height);
           const dataUrl = canvas.toDataURL('image/jpeg', quality);
           if (!dataUrl || !dataUrl.startsWith('data:image/')) {
             reject(
-              createCodedError('IMAGE_COMPRESSION_FAILED', `Canvas export failed for "${file.name}".`)
+              createCodedError(
+                'IMAGE_COMPRESSION_FAILED',
+                `Canvas export failed for "${file.name}".`
+              )
             );
             return;
           }
@@ -165,9 +182,20 @@ function openVerificationDb(): Promise<IDBDatabase> {
       const request = window.indexedDB.open(IDB_NAME, IDB_VERSION);
       request.onupgradeneeded = () => {
         const db = request.result;
+        const tx = request.transaction;
+        let store: IDBObjectStore;
         if (!db.objectStoreNames.contains(IDB_STORE)) {
-          const store = db.createObjectStore(IDB_STORE, { keyPath: 'id' });
+          store = db.createObjectStore(IDB_STORE, { keyPath: 'id' });
+        } else if (tx) {
+          store = tx.objectStore(IDB_STORE);
+        } else {
+          return;
+        }
+        if (!store.indexNames.contains(IDB_UID_INDEX)) {
           store.createIndex(IDB_UID_INDEX, 'uid', { unique: false });
+        }
+        if (!store.indexNames.contains(IDB_EMAIL_INDEX)) {
+          store.createIndex(IDB_EMAIL_INDEX, 'email', { unique: false });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -210,7 +238,11 @@ function saveToFallbackStores(records: StoredVerificationImageRecord[]): void {
     totalBytes += r.sizeBytes;
   });
 
-  if (typeof window !== 'undefined' && window.sessionStorage && totalBytes <= MAX_SESSION_FALLBACK_BYTES) {
+  if (
+    typeof window !== 'undefined' &&
+    window.sessionStorage &&
+    totalBytes <= MAX_SESSION_FALLBACK_BYTES
+  ) {
     try {
       for (const rec of records) {
         window.sessionStorage.setItem(`${SESSION_FALLBACK_PREFIX}${rec.id}`, JSON.stringify(rec));
@@ -221,18 +253,24 @@ function saveToFallbackStores(records: StoredVerificationImageRecord[]): void {
   }
 }
 
-function readFromFallbackStores(uid: string): StoredVerificationImageRecord[] {
+function readFromFallbackStores(uid: string, email?: string): StoredVerificationImageRecord[] {
   const byId = new Map<string, StoredVerificationImageRecord>();
+  const normEmail = normalizeEmail(email);
 
   if (typeof window !== 'undefined' && window.sessionStorage) {
     try {
       for (let i = 0; i < window.sessionStorage.length; i++) {
         const key = window.sessionStorage.key(i);
-        if (key && key.startsWith(`${SESSION_FALLBACK_PREFIX}${uid}:`)) {
+        if (key && key.startsWith(SESSION_FALLBACK_PREFIX)) {
           const raw = window.sessionStorage.getItem(key);
           if (raw) {
             const parsed = JSON.parse(raw) as StoredVerificationImageRecord;
-            if (parsed?.id && parsed?.dataUrl) {
+            if (
+              parsed?.id &&
+              parsed?.dataUrl &&
+              ((uid && parsed.uid === uid) ||
+                (normEmail && normalizeEmail(parsed.email) === normEmail))
+            ) {
               byId.set(parsed.id, parsed);
             }
           }
@@ -244,7 +282,10 @@ function readFromFallbackStores(uid: string): StoredVerificationImageRecord[] {
   }
 
   memoryFallbackStore.forEach((rec) => {
-    if (rec.uid === uid) {
+    if (
+      (uid && rec.uid === uid) ||
+      (normEmail && normalizeEmail(rec.email) === normEmail)
+    ) {
       byId.set(rec.id, rec);
     }
   });
@@ -344,7 +385,8 @@ async function putRecordsIntoIndexedDb(records: StoredVerificationImageRecord[])
 
 export async function saveUserVerificationImages(
   uid: string,
-  entries: Partial<Record<VerificationDocSlot, File | string>>
+  entries: Partial<Record<VerificationDocSlot, File | string>>,
+  email?: string
 ): Promise<Partial<Record<VerificationDocSlot, string>>> {
   const slots = (Object.keys(entries) as VerificationDocSlot[]).filter((k) => Boolean(entries[k]));
   if (slots.length === 0) return {};
@@ -355,15 +397,17 @@ export async function saveUserVerificationImages(
       const dataUrl =
         typeof input === 'string'
           ? input
-          : await compressImageToCanvasDataUrl(input, 800, 0.6);
+          : await compressImageToCanvasDataUrl(input, 800, 0.65);
       return { slot, dataUrl };
     })
   );
 
   const now = Date.now();
+  const normEmail = normalizeEmail(email);
   const records: StoredVerificationImageRecord[] = compressedPairs.map(({ slot, dataUrl }) => ({
     id: `${uid}:${slot}`,
     uid,
+    ...(normEmail ? { email: normEmail } : {}),
     slot,
     dataUrl,
     sizeBytes: dataUrl.length,
@@ -382,12 +426,15 @@ export async function saveUserVerificationImages(
 export async function saveSingleVerificationImage(
   uid: string,
   slot: VerificationDocSlot,
-  file: File
+  file: File,
+  email?: string
 ): Promise<{ refUrl: string; dataUrl: string }> {
-  const dataUrl = await compressImageToCanvasDataUrl(file, 800, 0.6);
+  const dataUrl = await compressImageToCanvasDataUrl(file, 800, 0.65);
+  const normEmail = normalizeEmail(email);
   const record: StoredVerificationImageRecord = {
     id: `${uid}:${slot}`,
     uid,
+    ...(normEmail ? { email: normEmail } : {}),
     slot,
     dataUrl,
     sizeBytes: dataUrl.length,
@@ -403,8 +450,9 @@ export async function saveSingleVerificationImage(
 function mapRecordsToVerificationDocImages(
   records: StoredVerificationImageRecord[]
 ): VerificationDocImages {
+  const sorted = [...records].sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
   const result: VerificationDocImages = {};
-  for (const rec of records) {
+  for (const rec of sorted) {
     if (!rec?.dataUrl) continue;
     switch (rec.slot) {
       case 'portrait':
@@ -422,24 +470,65 @@ function mapRecordsToVerificationDocImages(
       case 'license_back':
         result.licenseBackUrl = rec.dataUrl;
         break;
+      case 'vehicle_photo':
+        result.vehiclePhotoUrl = rec.dataUrl;
+        break;
     }
   }
   return result;
 }
 
-export async function getUserVerificationImages(uid: string): Promise<VerificationDocImages> {
-  if (!uid) return {};
-  const fallbackRecords = readFromFallbackStores(uid);
+export async function getUserVerificationImages(
+  uid: string,
+  email?: string
+): Promise<VerificationDocImages> {
+  const normEmail = normalizeEmail(email);
+  if (!uid && !normEmail) return {};
+  const fallbackRecords = readFromFallbackStores(uid, normEmail);
   let db: IDBDatabase | null = null;
   try {
     db = await openVerificationDb();
     const idbRecords = await new Promise<StoredVerificationImageRecord[]>((resolve, reject) => {
       const tx = db!.transaction(IDB_STORE, 'readonly');
       const store = tx.objectStore(IDB_STORE);
-      const index = store.index(IDB_UID_INDEX);
-      const req = index.getAll(uid);
-      req.onsuccess = () => resolve((req.result as StoredVerificationImageRecord[]) || []);
-      req.onerror = () => reject(req.error || new Error('Failed to read verification images.'));
+      const collected: StoredVerificationImageRecord[] = [];
+      let pending = 0;
+
+      const finish = () => {
+        if (pending === 0) resolve(collected);
+      };
+
+      if (uid && store.indexNames.contains(IDB_UID_INDEX)) {
+        pending++;
+        const uidReq = store.index(IDB_UID_INDEX).getAll(uid);
+        uidReq.onsuccess = () => {
+          collected.push(...((uidReq.result as StoredVerificationImageRecord[]) || []));
+          pending--;
+          finish();
+        };
+        uidReq.onerror = () => {
+          pending--;
+          finish();
+        };
+      }
+
+      if (normEmail && store.indexNames.contains(IDB_EMAIL_INDEX)) {
+        pending++;
+        const emailReq = store.index(IDB_EMAIL_INDEX).getAll(normEmail);
+        emailReq.onsuccess = () => {
+          collected.push(...((emailReq.result as StoredVerificationImageRecord[]) || []));
+          pending--;
+          finish();
+        };
+        emailReq.onerror = () => {
+          pending--;
+          finish();
+        };
+      }
+
+      if (pending === 0) {
+        reject(new Error('No lookup index available'));
+      }
     });
     return mapRecordsToVerificationDocImages([...fallbackRecords, ...idbRecords]);
   } catch {
@@ -466,6 +555,8 @@ export async function resolveVerificationImageSrc(value?: string | null): Promis
       return docs.licenseFrontUrl || '';
     case 'license_back':
       return docs.licenseBackUrl || '';
+    case 'vehicle_photo':
+      return docs.vehiclePhotoUrl || '';
     default:
       return '';
   }
@@ -474,7 +565,7 @@ export async function resolveVerificationImageSrc(value?: string | null): Promis
 export async function compressImageToDataUrl(
   file: File,
   maxWidth = 800,
-  quality = 0.6
+  quality = 0.65
 ): Promise<string> {
   const firstPass = await compressImageToCanvasDataUrl(file, maxWidth, quality);
   if (firstPass.length <= 165000) {

@@ -3,7 +3,11 @@ import { Globe, LogOut, Menu, X } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../context/AuthContext';
-import { isIndexedDbImageRef, resolveVerificationImageSrc } from '../services/imageUtils';
+import {
+  getUserVerificationImages,
+  isIndexedDbImageRef,
+  resolveVerificationImageSrc,
+} from '../services/imageUtils';
 import type { LanguageCode, VerificationStatus } from '../types/domain';
 
 export type AppView =
@@ -32,26 +36,37 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
 
   useEffect(() => {
     const rawUrl = userProfile?.photoUrl || firebaseUser?.photoURL || '';
-    if (!rawUrl) {
-      setResolvedAvatarUrl('');
-      return;
-    }
-    if (!isIndexedDbImageRef(rawUrl)) {
+    let cancelled = false;
+    if (rawUrl && !isIndexedDbImageRef(rawUrl)) {
       setResolvedAvatarUrl(rawUrl);
       return;
     }
-    let cancelled = false;
-    resolveVerificationImageSrc(rawUrl)
-      .then((src) => {
-        if (!cancelled) setResolvedAvatarUrl(src);
-      })
-      .catch(() => {
-        if (!cancelled) setResolvedAvatarUrl('');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userProfile?.photoUrl, firebaseUser?.photoURL]);
+    if (isIndexedDbImageRef(rawUrl)) {
+      resolveVerificationImageSrc(rawUrl)
+        .then((src) => {
+          if (!cancelled) setResolvedAvatarUrl(src);
+        })
+        .catch(() => {
+          if (!cancelled) setResolvedAvatarUrl('');
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (firebaseUser?.uid) {
+      getUserVerificationImages(firebaseUser.uid, firebaseUser.email || '')
+        .then((docs) => {
+          if (!cancelled) setResolvedAvatarUrl(docs.portraitUrl || '');
+        })
+        .catch(() => {
+          if (!cancelled) setResolvedAvatarUrl('');
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    setResolvedAvatarUrl('');
+  }, [userProfile?.photoUrl, firebaseUser?.photoURL, firebaseUser?.uid, firebaseUser?.email]);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 

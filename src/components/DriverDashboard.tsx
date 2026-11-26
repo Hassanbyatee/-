@@ -37,10 +37,8 @@ import {
 } from '../data/iraqReferenceData';
 import { IraqiPlateInput } from './IraqiPlateInput';
 import {
-  compressImageToDataUrl,
   getUserVerificationImages,
   isIndexedDbImageRef,
-  makeVerificationImageRef,
   resolveVerificationImageSrc,
   saveSingleVerificationImage,
 } from '../services/imageUtils';
@@ -81,7 +79,7 @@ type DriverTab = 'overview' | 'requests' | 'trips' | 'publish' | 'docs' | 'earni
 
 export const DriverDashboard: React.FC = () => {
   const { lang, getLocalizedName, formatIqd, t } = useI18n();
-  const { firebaseUser, userProfile, driverProfile, governorates, garages, settings } = useAuth();
+  const { firebaseUser, userProfile, privateInfo, driverProfile, governorates, garages, settings } = useAuth();
 
   const [tab, setTab] = useState<DriverTab>('trips');
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -173,7 +171,10 @@ export const DriverDashboard: React.FC = () => {
 
     let cancelled = false;
     (async () => {
-      const stored = await getUserVerificationImages(driverProfile.uid);
+      const stored = await getUserVerificationImages(
+        driverProfile.uid,
+        privateInfo?.email || firebaseUser?.email || ''
+      );
       const resolvePreview = async (storedVal: string | undefined, rawVal: string) => {
         if (storedVal) return storedVal;
         if (!rawVal) return '';
@@ -191,13 +192,16 @@ export const DriverDashboard: React.FC = () => {
         setIdBackUrl(pIdB);
         setLicFrontUrl(pLicF);
         setLicBackUrl(pLicB);
+        if (stored.vehiclePhotoUrl) {
+          setVehPhotoUrl(stored.vehiclePhotoUrl);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [driverProfile]);
+  }, [driverProfile, privateInfo?.email, firebaseUser?.email]);
 
   React.useEffect(() => {
     if (primaryVehicle) {
@@ -216,7 +220,9 @@ export const DriverDashboard: React.FC = () => {
       setColor(primaryVehicle.color || '');
       setCapacity(primaryVehicle.passengerCapacity);
       setHasAc(primaryVehicle.hasAc !== false);
-      setVehPhotoUrl(primaryVehicle.photoUrl || '');
+      if (primaryVehicle.photoUrl) {
+        setVehPhotoUrl(primaryVehicle.photoUrl);
+      }
     } else if (userProfile) {
       if (userProfile.vehicleModel && !makeModel) setMakeModel(userProfile.vehicleModel);
       if (userProfile.plateNumber || userProfile.plateGovCode || userProfile.plateDigits) {
@@ -563,7 +569,7 @@ export const DriverDashboard: React.FC = () => {
           plateGovCode: effectivePlateGovCode,
           plateLetter: effectivePlateLetter,
           plateDigits: effectivePlateDigits,
-          vehiclePhotoUrl: primaryVehicle?.photoUrl || vehPhotoUrl || '',
+          vehiclePhotoUrl: '',
           departureGovId: depGovId,
           destinationGovId: dstGovId,
           departureGarageId: depGarageId || depGarages[0]?.id || 'gar_bgw_nahda',
@@ -1748,17 +1754,6 @@ export const DriverDashboard: React.FC = () => {
             e.preventDefault();
             setBusy(true);
             try {
-              const safeRef = (refVal: string, previewVal: string, slot: 'id_front' | 'id_back' | 'license_front' | 'license_back') => {
-                if (refVal && !refVal.startsWith('data:')) return refVal;
-                if (previewVal && !previewVal.startsWith('data:')) return previewVal;
-                if (previewVal) return makeVerificationImageRef(firebaseUser.uid, slot);
-                return '';
-              };
-              const finalIdFront = safeRef(idFrontRef, idFrontUrl, 'id_front');
-              const finalIdBack = safeRef(idBackRef, idBackUrl, 'id_back');
-              const finalLicFront = safeRef(licFrontRef, licFrontUrl, 'license_front');
-              const finalLicBack = safeRef(licBackRef, licBackUrl, 'license_back');
-
               await updateDriverDocumentsAndVehicle(
                 firebaseUser.uid,
                 {
@@ -1768,12 +1763,6 @@ export const DriverDashboard: React.FC = () => {
                   homeGarageId,
                   licenseNumber: licenseNo,
                   nationalIdNumber: natIdNo,
-                  idDocumentUrl: finalIdFront,
-                  idFrontUrl: finalIdFront,
-                  idBackUrl: finalIdBack,
-                  licenseDocumentUrl: finalLicFront,
-                  licenseFrontUrl: finalLicFront,
-                  licenseBackUrl: finalLicBack,
                   bio,
                 },
                 {
@@ -1789,7 +1778,7 @@ export const DriverDashboard: React.FC = () => {
                   color,
                   passengerCapacity: capacity,
                   hasAc,
-                  photoUrl: vehPhotoUrl,
+                  photoUrl: '',
                 }
               );
               notify('ok', t.driver.savedSuccess);
@@ -1922,7 +1911,8 @@ export const DriverDashboard: React.FC = () => {
                         const { refUrl, dataUrl } = await saveSingleVerificationImage(
                           firebaseUser.uid,
                           'id_front',
-                          file
+                          file,
+                          privateInfo?.email || firebaseUser.email || ''
                         );
                         setIdFrontRef(refUrl);
                         setIdFrontUrl(dataUrl);
@@ -1964,7 +1954,8 @@ export const DriverDashboard: React.FC = () => {
                         const { refUrl, dataUrl } = await saveSingleVerificationImage(
                           firebaseUser.uid,
                           'id_back',
-                          file
+                          file,
+                          privateInfo?.email || firebaseUser.email || ''
                         );
                         setIdBackRef(refUrl);
                         setIdBackUrl(dataUrl);
@@ -2017,7 +2008,8 @@ export const DriverDashboard: React.FC = () => {
                         const { refUrl, dataUrl } = await saveSingleVerificationImage(
                           firebaseUser.uid,
                           'license_front',
-                          file
+                          file,
+                          privateInfo?.email || firebaseUser.email || ''
                         );
                         setLicFrontRef(refUrl);
                         setLicFrontUrl(dataUrl);
@@ -2059,7 +2051,8 @@ export const DriverDashboard: React.FC = () => {
                         const { refUrl, dataUrl } = await saveSingleVerificationImage(
                           firebaseUser.uid,
                           'license_back',
-                          file
+                          file,
+                          privateInfo?.email || firebaseUser.email || ''
                         );
                         setLicBackRef(refUrl);
                         setLicBackUrl(dataUrl);
@@ -2101,9 +2094,26 @@ export const DriverDashboard: React.FC = () => {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={async (e) =>
-                  e.target.files?.[0] && setVehPhotoUrl(await compressImageToDataUrl(e.target.files[0]))
-                }
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  try {
+                    setBusy(true);
+                    const { dataUrl } = await saveSingleVerificationImage(
+                      firebaseUser.uid,
+                      'vehicle_photo',
+                      file,
+                      privateInfo?.email || firebaseUser.email || ''
+                    );
+                    setVehPhotoUrl(dataUrl);
+                  } catch (err) {
+                    const d = extractErrorDetails(err);
+                    notify('err', `${t.auth.stepFailedImages} [${d.code}] ${d.message}`);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
               />
             </label>
           </div>

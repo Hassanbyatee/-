@@ -400,9 +400,9 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
     try {
       const uid = firebaseUser.uid;
 
-      // STEP 1 (Separated): Client-side Canvas compression (800px, JPEG 0.6) + IndexedDB persistence
+      // STEP 1: Client-side Canvas compression (max 800px, JPEG 0.65) + IndexedDB persistence keyed by uid/email
       setProgressStep('uploading');
-      let imageRefs: Partial<Record<VerificationDocSlot, string>> = {};
+      const userEmail = firebaseUser.email || `${uid}@masariraq.local`;
       try {
         const entries: Partial<Record<VerificationDocSlot, File>> = {};
         if (portraitPhoto) entries.portrait = portraitPhoto.file;
@@ -412,7 +412,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
           if (licenseFrontPhoto) entries.license_front = licenseFrontPhoto.file;
           if (licenseBackPhoto) entries.license_back = licenseBackPhoto.file;
         }
-        imageRefs = await saveUserVerificationImages(uid, entries);
+        await saveUserVerificationImages(uid, entries, userEmail);
         setImagesSavedNotice(true);
       } catch (imgErr) {
         const formatted = formatOnboardingError(imgErr, 'images');
@@ -421,28 +421,21 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
         return;
       }
 
-      // STEP 2 (Separated): Save user profile, role & pending status to Firestore (lightweight payload)
+      // STEP 2: Save ONLY text/profile fields (name, role, 3-part plate, pending status) to Firestore
       setProgressStep('saving');
       try {
         const formattedPlate =
           role === 'driver' ? formatIraqiPlate(plateGovCode, plateLetter, plateDigits, 'ar') : '';
         await registerUserProfile({
           uid,
-          email: firebaseUser.email || `${uid}@masariraq.local`,
+          email: userEmail,
           displayName,
           phone,
           role: role === 'driver' ? 'driver' : 'passenger',
           preferredLanguage: lang,
           governorateId,
           verificationStatus: 'pending',
-          photoUrl: firebaseUser.photoURL || imageRefs.portrait || '',
-          portraitUrl: imageRefs.portrait || '',
-          idDocumentUrl: role === 'driver' ? imageRefs.id_front || '' : '',
-          idFrontUrl: role === 'driver' ? imageRefs.id_front || '' : '',
-          idBackUrl: role === 'driver' ? imageRefs.id_back || '' : '',
-          licenseDocumentUrl: role === 'driver' ? imageRefs.license_front || '' : '',
-          licenseFrontUrl: role === 'driver' ? imageRefs.license_front || '' : '',
-          licenseBackUrl: role === 'driver' ? imageRefs.license_back || '' : '',
+          photoUrl: firebaseUser.photoURL || '',
           referralCodeInput,
           homeGarageId: govGarages[0]?.id || garages[0]?.id || '',
           vehicleModel: role === 'driver' ? vehicleModel : '',

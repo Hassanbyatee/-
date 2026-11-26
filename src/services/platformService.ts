@@ -66,6 +66,18 @@ function generateShareToken(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
 
+function sanitizeFirestoreImageUrl(value?: string): string {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('data:') || trimmed.startsWith('idb://')) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.slice(0, 2000);
+  }
+  return '';
+}
+
 export async function seedIraqReferenceData(force = false): Promise<void> {
   try {
     const govSnap = await getDocs(collection(db, 'governorates'));
@@ -216,12 +228,8 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
 
   const finalRole: UserRole = role === 'driver' ? 'driver' : 'passenger';
   const myReferralCode = generateReferralCode(uid);
-  const resolvedIdFront = payload.idFrontUrl || payload.idDocumentUrl || '';
-  const resolvedIdBack = payload.idBackUrl || '';
-  const resolvedLicFront = payload.licenseFrontUrl || payload.licenseDocumentUrl || '';
-  const resolvedLicBack = payload.licenseBackUrl || '';
   const safeEmail = (email || `${uid}@masariraq.local`).trim().slice(0, 160);
-  const safePhotoUrl = (photoUrl || payload.portraitUrl || '').trim();
+  const safePhotoUrl = sanitizeFirestoreImageUrl(photoUrl);
 
   try {
     let settings = DEFAULT_PLATFORM_SETTINGS;
@@ -251,25 +259,6 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    if (payload.portraitUrl) {
-      userDoc.portraitUrl = payload.portraitUrl;
-    }
-    if (finalRole === 'driver') {
-      if (resolvedIdFront) {
-        userDoc.idDocumentUrl = resolvedIdFront;
-        userDoc.idFrontUrl = resolvedIdFront;
-      }
-      if (resolvedIdBack) {
-        userDoc.idBackUrl = resolvedIdBack;
-      }
-      if (resolvedLicFront) {
-        userDoc.licenseDocumentUrl = resolvedLicFront;
-        userDoc.licenseFrontUrl = resolvedLicFront;
-      }
-      if (resolvedLicBack) {
-        userDoc.licenseBackUrl = resolvedLicBack;
-      }
-    }
     if (payload.vehicleModel && payload.vehicleModel.trim()) {
       userDoc.vehicleModel = payload.vehicleModel.trim();
     }
@@ -332,12 +321,6 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
         homeGarageId: payload.homeGarageId || '',
         licenseNumber: (payload.licenseNumber || 'PENDING').trim(),
         nationalIdNumber: (payload.nationalIdNumber || 'PENDING').trim(),
-        idDocumentUrl: resolvedIdFront,
-        idFrontUrl: resolvedIdFront,
-        idBackUrl: resolvedIdBack,
-        licenseDocumentUrl: resolvedLicFront,
-        licenseFrontUrl: resolvedLicFront,
-        licenseBackUrl: resolvedLicBack,
         operatingGovIds: [governorateId],
         verificationStatus: 'pending',
         isAvailable: true,
@@ -359,7 +342,7 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
         ratingCount: 0,
         completedTripsCount: 0,
         vehicleModel: (payload.vehicleModel || '').trim(),
-        vehiclePhotoUrl: payload.vehiclePhotoUrl || '',
+        vehiclePhotoUrl: sanitizeFirestoreImageUrl(payload.vehiclePhotoUrl),
         updatedAt: serverTimestamp(),
       });
       if (payload.vehicleModel && resolvedPlate) {
@@ -376,7 +359,7 @@ export async function registerUserProfile(payload: RegisterProfilePayload): Prom
           passengerCapacity: Number(payload.passengerCapacity) || 4,
           hasAc: true,
           hasWifi: false,
-          photoUrl: payload.vehiclePhotoUrl || '',
+          photoUrl: sanitizeFirestoreImageUrl(payload.vehiclePhotoUrl),
           verified: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -415,18 +398,17 @@ export async function updatePassengerProfile(
 
 export async function resubmitPassengerVerificationDocs(
   uid: string,
-  payload: { portraitUrl: string; photoUrl?: string; idDocumentUrl?: string }
+  payload: { portraitUrl?: string; photoUrl?: string; idDocumentUrl?: string }
 ): Promise<void> {
   try {
+    const safePhoto = sanitizeFirestoreImageUrl(payload.photoUrl);
     const patch: Record<string, unknown> = {
-      portraitUrl: payload.portraitUrl,
-      photoUrl: payload.photoUrl || payload.portraitUrl,
       verificationStatus: 'pending',
       rejectionReason: '',
       updatedAt: serverTimestamp(),
     };
-    if (payload.idDocumentUrl) {
-      patch.idDocumentUrl = payload.idDocumentUrl;
+    if (safePhoto) {
+      patch.photoUrl = safePhoto;
     }
     await updateDoc(doc(db, 'users', uid), patch);
   } catch (err) {
@@ -475,8 +457,6 @@ export async function updateDriverDocumentsAndVehicle(
       (usrSnap.exists() && usrSnap.data().verificationStatus === 'rejected');
 
     const batch = writeBatch(db);
-    const nextIdFront = driverData.idFrontUrl ?? driverData.idDocumentUrl;
-    const nextLicFront = driverData.licenseFrontUrl ?? driverData.licenseDocumentUrl;
     const driverPatch: Record<string, unknown> = {
       fullName: driverData.fullName.trim(),
       phone: driverData.phone.trim(),
@@ -487,28 +467,19 @@ export async function updateDriverDocumentsAndVehicle(
       bio: (driverData.bio || '').trim(),
       updatedAt: serverTimestamp(),
     };
-    if (nextIdFront !== undefined) {
-      driverPatch.idDocumentUrl = nextIdFront;
-      driverPatch.idFrontUrl = nextIdFront;
-    }
-    if (driverData.idBackUrl !== undefined) driverPatch.idBackUrl = driverData.idBackUrl;
-    if (nextLicFront !== undefined) {
-      driverPatch.licenseDocumentUrl = nextLicFront;
-      driverPatch.licenseFrontUrl = nextLicFront;
-    }
-    if (driverData.licenseBackUrl !== undefined) driverPatch.licenseBackUrl = driverData.licenseBackUrl;
     if (wasRejected) {
       driverPatch.verificationStatus = 'pending';
       driverPatch.rejectionReason = '';
     }
 
     batch.update(doc(db, 'drivers', uid), driverPatch);
+    const safeVehiclePhoto = sanitizeFirestoreImageUrl(vehicleData.photoUrl);
     const publicPatch: Record<string, unknown> = {
       fullName: driverData.fullName.trim(),
       governorateId: driverData.governorateId,
       homeGarageId: driverData.homeGarageId,
       vehicleModel: vehicleData.makeModel.trim(),
-      vehiclePhotoUrl: vehicleData.photoUrl || '',
+      vehiclePhotoUrl: safeVehiclePhoto,
       bio: (driverData.bio || '').trim(),
       updatedAt: serverTimestamp(),
     };
@@ -523,20 +494,6 @@ export async function updateDriverDocumentsAndVehicle(
         rejectionReason: '',
         updatedAt: serverTimestamp(),
       };
-      if (nextIdFront) {
-        userPatch.idDocumentUrl = nextIdFront;
-        userPatch.idFrontUrl = nextIdFront;
-      }
-      if (driverData.idBackUrl) {
-        userPatch.idBackUrl = driverData.idBackUrl;
-      }
-      if (nextLicFront) {
-        userPatch.licenseDocumentUrl = nextLicFront;
-        userPatch.licenseFrontUrl = nextLicFront;
-      }
-      if (driverData.licenseBackUrl) {
-        userPatch.licenseBackUrl = driverData.licenseBackUrl;
-      }
       batch.update(doc(db, 'users', uid), userPatch);
     }
 
@@ -559,7 +516,7 @@ export async function updateDriverDocumentsAndVehicle(
         color: vehicleData.color.trim(),
         passengerCapacity: Number(vehicleData.passengerCapacity),
         hasAc: vehicleData.hasAc,
-        photoUrl: vehicleData.photoUrl || '',
+        photoUrl: safeVehiclePhoto,
         updatedAt: serverTimestamp(),
       });
     } else {
@@ -576,7 +533,7 @@ export async function updateDriverDocumentsAndVehicle(
         passengerCapacity: Number(vehicleData.passengerCapacity),
         hasAc: vehicleData.hasAc,
         hasWifi: false,
-        photoUrl: vehicleData.photoUrl || '',
+        photoUrl: safeVehiclePhoto,
         verified: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -695,7 +652,9 @@ export async function publishTrip(input: {
   )
     .trim()
     .slice(0, 48);
-  const resolvedVehiclePhoto = input.vehicle?.photoUrl || input.vehiclePhotoUrl || '';
+  const resolvedVehiclePhoto = sanitizeFirestoreImageUrl(
+    input.vehicle?.photoUrl || input.vehiclePhotoUrl
+  );
 
   try {
     await setDoc(tripRef, {

@@ -317,14 +317,13 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     }
     setResubmittingDocs(true);
     try {
-      let portraitRefUrl = '';
       try {
-        const saved = await saveSingleVerificationImage(
+        await saveSingleVerificationImage(
           firebaseUser.uid,
           'portrait',
-          resubmitPortraitFile
+          resubmitPortraitFile,
+          privateInfo?.email || firebaseUser.email || ''
         );
-        portraitRefUrl = saved.refUrl;
       } catch (imgErr) {
         const d = extractErrorDetails(imgErr);
         notify('err', `${t.auth.stepFailedImages} [${d.code}] ${d.message}`);
@@ -333,8 +332,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
       try {
         await resubmitPassengerVerificationDocs(firebaseUser.uid, {
-          portraitUrl: portraitRefUrl,
-          photoUrl: firebaseUser.photoURL || portraitRefUrl,
+          photoUrl: firebaseUser.photoURL || '',
         });
         setResubmitPortraitFile(null);
         notify('ok', t.auth.docsResubmitted);

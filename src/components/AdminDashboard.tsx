@@ -208,8 +208,21 @@ export const AdminDashboard: React.FC = () => {
     let cancelled = false;
 
     const hydrateDocs = async () => {
+      let privateData: UserPrivateInfo | null = null;
+      if (firebaseUser) {
+        try {
+          const snap = await getDoc(doc(db, 'users', targetUid, 'private', 'info'));
+          privateData = snap.exists() ? (snap.data() as UserPrivateInfo) : null;
+        } catch {
+          privateData = null;
+        }
+      }
+      if (!cancelled) {
+        setInspectPrivateInfo(privateData);
+      }
+
       try {
-        const stored = await getUserVerificationImages(targetUid);
+        const stored = await getUserVerificationImages(targetUid, privateData?.email);
         const linkedUsr = inspectUser || users.find((u) => u.uid === targetUid);
         const linkedDrv = inspectDriver || drivers.find((d) => d.uid === targetUid);
 
@@ -267,22 +280,6 @@ export const AdminDashboard: React.FC = () => {
 
     hydrateDocs();
 
-    if (!firebaseUser) {
-      setInspectPrivateInfo(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    getDoc(doc(db, 'users', targetUid, 'private', 'info'))
-      .then((snap) => {
-        if (!cancelled) {
-          setInspectPrivateInfo(snap.exists() ? (snap.data() as UserPrivateInfo) : null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setInspectPrivateInfo(null);
-      });
     return () => {
       cancelled = true;
     };
